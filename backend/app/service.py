@@ -16,6 +16,12 @@ class BookService:
     def search_books(self, query: str, limit: int = 20) -> list[Book]:
         return self.repository.search_books(query=query, limit=limit)
 
+    def get_book(self, book_id: UUID) -> Book:
+        book = self.repository.get_book(book_id)
+        if book is None:
+            raise BookNotFoundError(book_id)
+        return book
+
     def get_library(
         self, user_id: UUID, status: ReadingStatus | None = None
     ) -> list[LibraryEntry]:

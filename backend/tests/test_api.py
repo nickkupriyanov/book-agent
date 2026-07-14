@@ -19,6 +19,26 @@ def test_search_is_case_insensitive(client: TestClient) -> None:
     assert [book["title"] for book in response.json()] == ["Дюна"]
 
 
+def test_get_book_by_id(client: TestClient) -> None:
+    response = client.get(f"/api/books/{DUNE_ID}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": DUNE_ID,
+        "title": "Дюна",
+        "author": "Фрэнк Герберт",
+    }
+
+
+def test_get_unknown_book_returns_not_found(client: TestClient) -> None:
+    book_id = uuid4()
+
+    response = client.get(f"/api/books/{book_id}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": f"Book {book_id} was not found"}
+
+
 def test_add_list_and_update_book(client: TestClient) -> None:
     add_response = client.post(
         "/api/library",

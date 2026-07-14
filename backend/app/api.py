@@ -2,12 +2,10 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db import get_db
+from app.dependencies import get_book_service
 from app.models import ReadingStatus
-from app.repository import BookRepository
 from app.schemas import (
     BookResponse,
     LibraryEntryCreate,
@@ -19,10 +17,6 @@ from app.service import BookService
 router = APIRouter(prefix="/api")
 
 
-def get_book_service(db: Annotated[Session, Depends(get_db)]) -> BookService:
-    return BookService(BookRepository(db))
-
-
 @router.get("/books/search", response_model=list[BookResponse])
 def search_books(
     service: Annotated[BookService, Depends(get_book_service)],
@@ -30,6 +24,14 @@ def search_books(
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> list[BookResponse]:
     return service.search_books(query=q, limit=limit)
+
+
+@router.get("/books/{book_id}", response_model=BookResponse)
+def get_book(
+    book_id: UUID,
+    service: Annotated[BookService, Depends(get_book_service)],
+) -> BookResponse:
+    return service.get_book(book_id)
 
 
 @router.get("/library", response_model=list[LibraryEntryResponse])

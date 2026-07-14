@@ -1,15 +1,34 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.exceptions import DuplicateLibraryEntryError, LibraryEntryNotFoundError
+from app.exceptions import (
+    BookNotFoundError,
+    DuplicateLibraryEntryError,
+    LibraryEntryNotFoundError,
+)
 from app.models import ReadingStatus
 from app.repository import BookRepository
 from app.service import BookService
 
 DUNE_ID = UUID("10000000-0000-0000-0000-000000000001")
+
+
+def test_service_returns_book_by_id(session: Session) -> None:
+    service = BookService(BookRepository(session))
+
+    book = service.get_book(DUNE_ID)
+
+    assert book.title == "Дюна"
+
+
+def test_service_rejects_unknown_book_id(session: Session) -> None:
+    service = BookService(BookRepository(session))
+
+    with pytest.raises(BookNotFoundError):
+        service.get_book(uuid4())
 
 
 def test_service_rejects_duplicate(session: Session) -> None:
