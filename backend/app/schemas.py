@@ -1,13 +1,17 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import ReadingStatus
 
 
 class HealthResponse(BaseModel):
     status: str
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1)
 
 
 class BookResponse(BaseModel):
