@@ -4,7 +4,12 @@ from fastapi.testclient import TestClient
 
 from app.dependencies import get_llm_provider
 from app.llm.fake import FakeLLMProvider
-from app.llm.exceptions import LLMTimeoutError, LLMUnavailableError
+from app.llm.exceptions import (
+    LLMProviderError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+    LLMUnavailableError,
+)
 from app.llm.models import ModelResponse, TokenUsage
 from app.main import app
 
@@ -70,4 +75,30 @@ def test_chat_returns_503_when_provider_is_unavailable(
 
     assert response.status_code == 503
     assert response.json() == {"detail": "LLM provider is unavailable"}
+    assert "internal SDK details" not in response.text
+
+
+def test_chat_returns_503_when_provider_rate_limit_is_exceeded(
+    client: TestClient,
+) -> None:
+    provider = Mock()
+    provider.generate.side_effect = LLMRateLimitError("internal SDK details")
+    app.dependency_overrides[get_llm_provider] = lambda: provider
+
+    response = client.post("/api/chat", json={"message": "Расскажи о Дюне"})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "LLM provider rate limit exceeded"}
+    assert "internal SDK details" not in response.text
+
+
+def test_chat_returns_502_for_other_provider_errors(client: TestClient) -> None:
+    provider = Mock()
+    provider.generate.side_effect = LLMProviderError("internal SDK details")
+    app.dependency_overrides[get_llm_provider] = lambda: provider
+
+    response = client.post("/api/chat", json={"message": "Расскажи о Дюне"})
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "LLM provider returned an error"}
     assert "internal SDK details" not in response.text

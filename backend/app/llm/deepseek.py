@@ -1,10 +1,22 @@
 from collections.abc import Sequence
 from typing import assert_never
 
-from openai import APIConnectionError, APITimeoutError, OpenAI
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    OpenAI,
+    RateLimitError,
+)
 from openai.types.chat import ChatCompletionMessageParam
 
-from app.llm.exceptions import LLMTimeoutError, LLMUnavailableError
+from app.llm.exceptions import (
+    LLMProviderError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+    LLMUnavailableError,
+)
 from app.llm.models import Message, MessageRole, ModelResponse, TokenUsage
 
 
@@ -38,6 +50,12 @@ class DeepSeekProvider:
             raise LLMTimeoutError from exc
         except APIConnectionError as exc:
             raise LLMUnavailableError from exc
+        except AuthenticationError as exc:
+            raise LLMUnavailableError from exc
+        except RateLimitError as exc:
+            raise LLMRateLimitError from exc
+        except APIStatusError as exc:
+            raise LLMProviderError from exc
 
         usage = None
         if response.usage is not None:

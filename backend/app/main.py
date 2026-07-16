@@ -9,6 +9,8 @@ from app.exceptions import (
 )
 from app.llm.exceptions import (
     LLMNotConfiguredError,
+    LLMProviderError,
+    LLMRateLimitError,
     LLMTimeoutError,
     LLMUnavailableError,
 )
@@ -43,6 +45,26 @@ def handle_llm_unavailable(
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": "LLM provider is unavailable"},
+    )
+
+
+@app.exception_handler(LLMRateLimitError)
+def handle_llm_rate_limit(
+    request: Request, exc: LLMRateLimitError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "LLM provider rate limit exceeded"},
+    )
+
+
+@app.exception_handler(LLMProviderError)
+def handle_llm_provider_error(
+    request: Request, exc: LLMProviderError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={"detail": "LLM provider returned an error"},
     )
 
 

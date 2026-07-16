@@ -3,10 +3,21 @@ from unittest.mock import Mock
 
 import httpx
 import pytest
-from openai import APIConnectionError, APITimeoutError
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    RateLimitError,
+)
 
 from app.llm.deepseek import DeepSeekProvider
-from app.llm.exceptions import LLMTimeoutError, LLMUnavailableError
+from app.llm.exceptions import (
+    LLMProviderError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+    LLMUnavailableError,
+)
 from app.llm.models import Message, MessageRole, ModelResponse, TokenUsage
 
 
@@ -97,6 +108,66 @@ def test_generate_converts_connection_error() -> None:
     provider = DeepSeekProvider(client=client, model="test-model")
 
     with pytest.raises(LLMUnavailableError):
+        provider.generate(
+            [Message(role=MessageRole.USER, content="Сообщение")]
+        )
+
+
+def test_generate_converts_authentication_error() -> None:
+    client = make_client(response=None)
+    client.chat.completions.create.side_effect = AuthenticationError(
+        "Invalid API key",
+        response=httpx.Response(
+            401,
+            request=httpx.Request(
+                "POST", "https://api.deepseek.com/chat/completions"
+            ),
+        ),
+        body=None,
+    )
+    provider = DeepSeekProvider(client=client, model="test-model")
+
+    with pytest.raises(LLMUnavailableError):
+        provider.generate(
+            [Message(role=MessageRole.USER, content="Сообщение")]
+        )
+
+
+def test_generate_converts_rate_limit_error() -> None:
+    client = make_client(response=None)
+    client.chat.completions.create.side_effect = RateLimitError(
+        "Rate limit exceeded",
+        response=httpx.Response(
+            429,
+            request=httpx.Request(
+                "POST", "https://api.deepseek.com/chat/completions"
+            ),
+        ),
+        body=None,
+    )
+    provider = DeepSeekProvider(client=client, model="test-model")
+
+    with pytest.raises(LLMRateLimitError):
+        provider.generate(
+            [Message(role=MessageRole.USER, content="Сообщение")]
+        )
+
+
+def test_generate_converts_other_api_status_error() -> None:
+    client = make_client(response=None)
+    client.chat.completions.create.side_effect = APIStatusError(
+        "Internal provider details",
+        response=httpx.Response(
+            500,
+            request=httpx.Request(
+                "POST", "https://api.deepseek.com/chat/completions"
+            ),
+        ),
+        body=None,
+    )
+    provider = DeepSeekProvider(client=client, model="test-model")
+
+    with pytest.raises(LLMProviderError):
         provider.generate(
             [Message(role=MessageRole.USER, content="Сообщение")]
         )
