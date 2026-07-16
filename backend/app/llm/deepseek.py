@@ -1,9 +1,10 @@
 from collections.abc import Sequence
 from typing import assert_never
 
-from openai import OpenAI
+from openai import APIConnectionError, APITimeoutError, OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
+from app.llm.exceptions import LLMTimeoutError, LLMUnavailableError
 from app.llm.models import Message, MessageRole, ModelResponse, TokenUsage
 
 
@@ -28,10 +29,15 @@ class DeepSeekProvider:
         api_messages: list[ChatCompletionMessageParam] = [
             _to_api_message(message) for message in messages
         ]
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=api_messages,
-        )
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=api_messages,
+            )
+        except APITimeoutError as exc:
+            raise LLMTimeoutError from exc
+        except APIConnectionError as exc:
+            raise LLMUnavailableError from exc
 
         usage = None
         if response.usage is not None:

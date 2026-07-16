@@ -1,7 +1,12 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import httpx
+import pytest
+from openai import APIConnectionError, APITimeoutError
+
 from app.llm.deepseek import DeepSeekProvider
+from app.llm.exceptions import LLMTimeoutError, LLMUnavailableError
 from app.llm.models import Message, MessageRole, ModelResponse, TokenUsage
 
 
@@ -69,3 +74,29 @@ def test_generate_allows_response_without_usage() -> None:
     )
 
     assert result.usage is None
+
+
+def test_generate_converts_timeout_error() -> None:
+    client = make_client(response=None)
+    client.chat.completions.create.side_effect = APITimeoutError(
+        request=httpx.Request("POST", "https://api.deepseek.com/chat/completions")
+    )
+    provider = DeepSeekProvider(client=client, model="test-model")
+
+    with pytest.raises(LLMTimeoutError):
+        provider.generate(
+            [Message(role=MessageRole.USER, content="Сообщение")]
+        )
+
+
+def test_generate_converts_connection_error() -> None:
+    client = make_client(response=None)
+    client.chat.completions.create.side_effect = APIConnectionError(
+        request=httpx.Request("POST", "https://api.deepseek.com/chat/completions")
+    )
+    provider = DeepSeekProvider(client=client, model="test-model")
+
+    with pytest.raises(LLMUnavailableError):
+        provider.generate(
+            [Message(role=MessageRole.USER, content="Сообщение")]
+        )

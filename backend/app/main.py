@@ -7,7 +7,11 @@ from app.exceptions import (
     DuplicateLibraryEntryError,
     LibraryEntryNotFoundError,
 )
-from app.llm.exceptions import LLMNotConfiguredError
+from app.llm.exceptions import (
+    LLMNotConfiguredError,
+    LLMTimeoutError,
+    LLMUnavailableError,
+)
 from app.schemas import HealthResponse
 
 app = FastAPI(title="Book Agent API", version="0.1.0")
@@ -21,6 +25,24 @@ def handle_llm_not_configured(
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": str(exc)},
+    )
+
+
+@app.exception_handler(LLMTimeoutError)
+def handle_llm_timeout(request: Request, exc: LLMTimeoutError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+        content={"detail": "LLM provider timed out"},
+    )
+
+
+@app.exception_handler(LLMUnavailableError)
+def handle_llm_unavailable(
+    request: Request, exc: LLMUnavailableError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "LLM provider is unavailable"},
     )
 
 
