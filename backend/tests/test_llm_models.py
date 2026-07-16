@@ -5,7 +5,9 @@ from app.llm.models import Message, MessageRole, ModelResponse, TokenUsage
 
 
 def test_message_accepts_known_role() -> None:
-    message = Message(role="user", content="Расскажи о Дюне")
+    message = Message.model_validate(
+        {"role": "user", "content": "Расскажи о Дюне"}
+    )
 
     assert message.role is MessageRole.USER
     assert message.content == "Расскажи о Дюне"
@@ -13,7 +15,9 @@ def test_message_accepts_known_role() -> None:
 
 def test_message_rejects_unknown_role() -> None:
     with pytest.raises(ValidationError):
-        Message(role="admin", content="Расскажи о Дюне")
+        Message.model_validate(
+            {"role": "admin", "content": "Расскажи о Дюне"}
+        )
 
 
 def test_token_usage_rejects_negative_values() -> None:

@@ -1,5 +1,5 @@
 from app.llm.fake import FakeLLMProvider
-from app.llm.models import Message, ModelResponse
+from app.llm.models import Message, MessageRole, ModelResponse
 from app.llm.service import ChatService
 
 
@@ -22,9 +22,12 @@ def test_chat_service_sends_system_and_user_messages_once() -> None:
     assert provider.calls == [
         [
             Message(
-                role="system",
+                role=MessageRole.SYSTEM,
                 content="Ты помощник по книгам. Отвечай кратко и точно.",
             ),
-            Message(role="user", content="Кратко расскажи о Дюне"),
+            Message(
+                role=MessageRole.USER,
+                content="Кратко расскажи о Дюне",
+            ),
         ]
     ]

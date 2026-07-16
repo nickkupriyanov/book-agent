@@ -7,10 +7,21 @@ from app.exceptions import (
     DuplicateLibraryEntryError,
     LibraryEntryNotFoundError,
 )
+from app.llm.exceptions import LLMNotConfiguredError
 from app.schemas import HealthResponse
 
 app = FastAPI(title="Book Agent API", version="0.1.0")
 app.include_router(router)
+
+
+@app.exception_handler(LLMNotConfiguredError)
+def handle_llm_not_configured(
+    request: Request, exc: LLMNotConfiguredError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": str(exc)},
+    )
 
 
 @app.get("/health", response_model=HealthResponse)
