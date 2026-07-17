@@ -1,16 +1,17 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
-from app.tools.models import ToolDefinition
+from app.tools.models import (
+    ToolCall,
+    ToolDefinition,
+    ToolError,
+    ToolErrorCode,
+    ToolResult,
+)
 
 ToolHandler = Callable[..., BaseModel]
-
-
-class UnknownToolError(Exception):
-    def __init__(self, name: str) -> None:
-        super().__init__(f"Unknown tool: {name}")
 
 
 class DuplicateToolError(Exception):
@@ -42,13 +43,46 @@ class ToolRegistry:
 
     def execute(
         self,
-        name: str,
-        raw_arguments: dict[str, object],
-    ) -> BaseModel:
-        tool = self._tools.get(name)
+        call: ToolCall,
+    ) -> ToolResult:
+        tool = self._tools.get(call.name)
         if tool is None:
-            raise UnknownToolError(name)
+            return ToolResult(
+                tool_call_id=call.id,
+                tool_name=call.name,
+                error=ToolError(
+                    code=ToolErrorCode.UNKNOWN_TOOL,
+                    message="Tool is not available",
+                ),
+            )
 
-        arguments = tool.definition.arguments_model.model_validate(raw_arguments)
+        try:
+            arguments = tool.definition.arguments_model.model_validate(call.arguments)
+        except ValidationError:
+            return ToolResult(
+                tool_call_id=call.id,
+                tool_name=call.name,
+                error=ToolError(
+                    code=ToolErrorCode.INVALID_ARGUMENTS,
+                    message="Tool arguments are invalid",
+                ),
+            )
+
         raw_result = tool.handler(arguments)
-        return tool.definition.result_model.model_validate(raw_result)
+        try:
+            result = tool.definition.result_model.model_validate(raw_result)
+        except ValidationError:
+            return ToolResult(
+                tool_call_id=call.id,
+                tool_name=call.name,
+                error=ToolError(
+                    code=ToolErrorCode.INVALID_RESULT,
+                    message="Tool returned an invalid result",
+                ),
+            )
+
+        return ToolResult(
+            tool_call_id=call.id,
+            tool_name=call.name,
+            output=result.model_dump(mode="json"),
+        )

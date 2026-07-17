@@ -1,12 +1,49 @@
 from dataclasses import dataclass
 from enum import Enum
+from typing import Self
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ToolAccess(str, Enum):
     READ = "read"
     WRITE = "write"
+
+
+class ToolErrorCode(str, Enum):
+    UNKNOWN_TOOL = "unknown_tool"
+    INVALID_ARGUMENTS = "invalid_arguments"
+    INVALID_RESULT = "invalid_result"
+
+
+class ToolCall(BaseModel):
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    arguments: dict[str, object]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ToolError(BaseModel):
+    code: ToolErrorCode
+    message: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ToolResult(BaseModel):
+    tool_call_id: str = Field(min_length=1)
+    tool_name: str = Field(min_length=1)
+    output: dict[str, object] | None = None
+    error: ToolError | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_output_or_error(self) -> Self:
+        if (self.output is None) == (self.error is None):
+            raise ValueError("ToolResult requires exactly one of output or error")
+        return self
 
 
 @dataclass(frozen=True)

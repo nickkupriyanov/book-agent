@@ -1,18 +1,22 @@
 from unittest.mock import Mock
+from uuid import UUID
 
 import pytest
-from pydantic import ValidationError
 
 from app.tools.books import (
     SEARCH_BOOKS_TOOL,
+    BookToolResult,
     SearchBooksArguments,
     SearchBooksResult,
 )
-from app.tools.registry import (
-    DuplicateToolError,
-    ToolRegistry,
-    UnknownToolError,
+from app.tools.models import (
+    ToolCall,
+    ToolError,
+    ToolErrorCode,
 )
+from app.tools.registry import DuplicateToolError, ToolRegistry
+
+DUNE_ID = UUID("10000000-0000-0000-0000-000000000001")
 
 
 def test_registry_exposes_registered_definitions() -> None:
@@ -23,17 +27,41 @@ def test_registry_exposes_registered_definitions() -> None:
 
 
 def test_registry_validates_arguments_and_calls_handler() -> None:
-    handler = Mock(return_value=SearchBooksResult(books=[]))
+    handler = Mock(
+        return_value=SearchBooksResult(
+            books=[
+                BookToolResult(
+                    id=DUNE_ID,
+                    title="Дюна",
+                    author="Фрэнк Герберт",
+                )
+            ]
+        )
+    )
     registry = ToolRegistry()
     registry.register(SEARCH_BOOKS_TOOL, handler)
 
     result = registry.execute(
-        name="search_books",
-        raw_arguments={"query": "Дюна", "limit": 5},
+        ToolCall(
+            id="call-1",
+            name="search_books",
+            arguments={"query": "Дюна", "limit": 5},
+        )
     )
 
     handler.assert_called_once_with(SearchBooksArguments(query="Дюна", limit=5))
-    assert result == SearchBooksResult(books=[])
+    assert result.tool_call_id == "call-1"
+    assert result.tool_name == "search_books"
+    assert result.output == {
+        "books": [
+            {
+                "id": str(DUNE_ID),
+                "title": "Дюна",
+                "author": "Фрэнк Герберт",
+            }
+        ]
+    }
+    assert result.error is None
 
 
 def test_registry_rejects_invalid_arguments_before_handler() -> None:
@@ -41,23 +69,38 @@ def test_registry_rejects_invalid_arguments_before_handler() -> None:
     registry = ToolRegistry()
     registry.register(SEARCH_BOOKS_TOOL, handler)
 
-    with pytest.raises(ValidationError):
-        registry.execute(
+    result = registry.execute(
+        ToolCall(
+            id="call-2",
             name="search_books",
-            raw_arguments={"query": "Дюна", "sql": "DROP TABLE books"},
+            arguments={"query": "Дюна", "sql": "DROP TABLE books"},
         )
+    )
 
     handler.assert_not_called()
+    assert result.output is None
+    assert result.error == ToolError(
+        code=ToolErrorCode.INVALID_ARGUMENTS,
+        message="Tool arguments are invalid",
+    )
 
 
 def test_registry_rejects_unknown_tool() -> None:
     registry = ToolRegistry()
 
-    with pytest.raises(UnknownToolError, match="Unknown tool: execute_sql"):
-        registry.execute(
+    result = registry.execute(
+        ToolCall(
+            id="call-3",
             name="execute_sql",
-            raw_arguments={"query": "DROP TABLE books"},
+            arguments={"query": "DROP TABLE books"},
         )
+    )
+
+    assert result.output is None
+    assert result.error == ToolError(
+        code=ToolErrorCode.UNKNOWN_TOOL,
+        message="Tool is not available",
+    )
 
 
 def test_registry_rejects_duplicate_name() -> None:
@@ -72,8 +115,33 @@ def test_registry_validates_handler_result() -> None:
     registry = ToolRegistry()
     registry.register(SEARCH_BOOKS_TOOL, Mock(return_value={"unexpected": True}))
 
-    with pytest.raises(ValidationError):
-        registry.execute(
+    result = registry.execute(
+        ToolCall(
+            id="call-4",
             name="search_books",
-            raw_arguments={"query": "Дюна"},
+            arguments={"query": "Дюна"},
+        )
+    )
+
+    assert result.output is None
+    assert result.error == ToolError(
+        code=ToolErrorCode.INVALID_RESULT,
+        message="Tool returned an invalid result",
+    )
+
+
+def test_registry_does_not_hide_unexpected_handler_error() -> None:
+    registry = ToolRegistry()
+    registry.register(
+        SEARCH_BOOKS_TOOL,
+        Mock(side_effect=RuntimeError("unexpected bug")),
+    )
+
+    with pytest.raises(RuntimeError, match="unexpected bug"):
+        registry.execute(
+            ToolCall(
+                id="call-5",
+                name="search_books",
+                arguments={"query": "Дюна"},
+            )
         )
