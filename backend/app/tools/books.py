@@ -2,6 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.service import BookService
 from app.tools.models import ToolAccess, ToolDefinition
 
 
@@ -24,6 +25,20 @@ class SearchBooksResult(BaseModel):
     books: list[BookToolResult]
 
     model_config = ConfigDict(extra="forbid")
+
+
+class SearchBooksHandler:
+    def __init__(self, service: BookService) -> None:
+        self._service = service
+
+    def __call__(self, arguments: SearchBooksArguments) -> SearchBooksResult:
+        books = self._service.search_books(
+            query=arguments.query,
+            limit=arguments.limit,
+        )
+        return SearchBooksResult(
+            books=[BookToolResult.model_validate(book) for book in books]
+        )
 
 
 SEARCH_BOOKS_TOOL = ToolDefinition(
