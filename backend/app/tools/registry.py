@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ValidationError
 
+from app.tools.exceptions import ToolExecutionError
 from app.tools.models import (
     ToolCall,
     ToolDefinition,
@@ -68,7 +69,15 @@ class ToolRegistry:
                 ),
             )
 
-        raw_result = tool.handler(arguments)
+        try:
+            raw_result = tool.handler(arguments)
+        except ToolExecutionError as exc:
+            return ToolResult(
+                tool_call_id=call.id,
+                tool_name=call.name,
+                error=ToolError(code=exc.code, message=exc.message),
+            )
+
         try:
             result = tool.definition.result_model.model_validate(raw_result)
         except ValidationError:

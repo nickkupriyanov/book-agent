@@ -2,10 +2,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.exceptions import BookNotFoundError, DuplicateLibraryEntryError
 from app.models import ReadingStatus
 from app.service import BookService
 from app.tools.books import BookToolResult
-from app.tools.models import ToolAccess, ToolDefinition
+from app.tools.exceptions import ToolExecutionError
+from app.tools.models import ToolAccess, ToolDefinition, ToolErrorCode
 
 
 class GetUserLibraryArguments(BaseModel):
@@ -47,6 +49,45 @@ class GetUserLibraryHandler:
         )
 
 
+class AddBookArguments(BaseModel):
+    book_id: UUID
+    status: ReadingStatus
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AddBookResult(BaseModel):
+    entry: LibraryEntryToolResult
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AddBookHandler:
+    def __init__(self, service: BookService, user_id: UUID) -> None:
+        self._service = service
+        self._user_id = user_id
+
+    def __call__(self, arguments: AddBookArguments) -> AddBookResult:
+        try:
+            entry = self._service.add_book(
+                user_id=self._user_id,
+                book_id=arguments.book_id,
+                status=arguments.status,
+            )
+        except BookNotFoundError as exc:
+            raise ToolExecutionError(
+                code=ToolErrorCode.BOOK_NOT_FOUND,
+                message="Book was not found",
+            ) from exc
+        except DuplicateLibraryEntryError as exc:
+            raise ToolExecutionError(
+                code=ToolErrorCode.BOOK_ALREADY_IN_LIBRARY,
+                message="Book is already in the library",
+            ) from exc
+
+        return AddBookResult(entry=LibraryEntryToolResult.model_validate(entry))
+
+
 GET_USER_LIBRARY_TOOL = ToolDefinition(
     name="get_user_library",
     description=(
@@ -56,4 +97,15 @@ GET_USER_LIBRARY_TOOL = ToolDefinition(
     access=ToolAccess.READ,
     arguments_model=GetUserLibraryArguments,
     result_model=GetUserLibraryResult,
+)
+
+
+ADD_BOOK_TOOL = ToolDefinition(
+    name="add_book",
+    description=(
+        "Add a book to the current user's library with a reading status."
+    ),
+    access=ToolAccess.WRITE,
+    arguments_model=AddBookArguments,
+    result_model=AddBookResult,
 )

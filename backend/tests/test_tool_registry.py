@@ -9,6 +9,7 @@ from app.tools.books import (
     SearchBooksArguments,
     SearchBooksResult,
 )
+from app.tools.exceptions import ToolExecutionError
 from app.tools.models import (
     ToolCall,
     ToolError,
@@ -145,3 +146,30 @@ def test_registry_does_not_hide_unexpected_handler_error() -> None:
                 arguments={"query": "Дюна"},
             )
         )
+
+
+def test_registry_converts_controlled_execution_error() -> None:
+    registry = ToolRegistry()
+    registry.register(
+        SEARCH_BOOKS_TOOL,
+        Mock(
+            side_effect=ToolExecutionError(
+                code=ToolErrorCode.BOOK_NOT_FOUND,
+                message="Book was not found",
+            )
+        ),
+    )
+
+    result = registry.execute(
+        ToolCall(
+            id="call-6",
+            name="search_books",
+            arguments={"query": "Дюна"},
+        )
+    )
+
+    assert result.output is None
+    assert result.error == ToolError(
+        code=ToolErrorCode.BOOK_NOT_FOUND,
+        message="Book was not found",
+    )

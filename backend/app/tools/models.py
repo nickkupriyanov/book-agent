@@ -14,6 +14,8 @@ class ToolErrorCode(str, Enum):
     UNKNOWN_TOOL = "unknown_tool"
     INVALID_ARGUMENTS = "invalid_arguments"
     INVALID_RESULT = "invalid_result"
+    BOOK_NOT_FOUND = "book_not_found"
+    BOOK_ALREADY_IN_LIBRARY = "book_already_in_library"
 
 
 class ToolCall(BaseModel):
