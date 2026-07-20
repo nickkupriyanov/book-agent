@@ -2,7 +2,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from app.exceptions import BookNotFoundError, DuplicateLibraryEntryError
+from app.exceptions import (
+    BookNotFoundError,
+    DuplicateLibraryEntryError,
+    LibraryEntryNotFoundError,
+)
 from app.models import ReadingStatus
 from app.service import BookService
 from app.tools.books import BookToolResult
@@ -88,6 +92,45 @@ class AddBookHandler:
         return AddBookResult(entry=LibraryEntryToolResult.model_validate(entry))
 
 
+class UpdateBookStatusArguments(BaseModel):
+    book_id: UUID
+    status: ReadingStatus
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class UpdateBookStatusResult(BaseModel):
+    entry: LibraryEntryToolResult
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class UpdateBookStatusHandler:
+    def __init__(self, service: BookService, user_id: UUID) -> None:
+        self._service = service
+        self._user_id = user_id
+
+    def __call__(
+        self,
+        arguments: UpdateBookStatusArguments,
+    ) -> UpdateBookStatusResult:
+        try:
+            entry = self._service.update_status(
+                user_id=self._user_id,
+                book_id=arguments.book_id,
+                status=arguments.status,
+            )
+        except LibraryEntryNotFoundError as exc:
+            raise ToolExecutionError(
+                code=ToolErrorCode.LIBRARY_ENTRY_NOT_FOUND,
+                message="Book is not in the library",
+            ) from exc
+
+        return UpdateBookStatusResult(
+            entry=LibraryEntryToolResult.model_validate(entry)
+        )
+
+
 GET_USER_LIBRARY_TOOL = ToolDefinition(
     name="get_user_library",
     description=(
@@ -108,4 +151,13 @@ ADD_BOOK_TOOL = ToolDefinition(
     access=ToolAccess.WRITE,
     arguments_model=AddBookArguments,
     result_model=AddBookResult,
+)
+
+
+UPDATE_BOOK_STATUS_TOOL = ToolDefinition(
+    name="update_book_status",
+    description="Update a book's reading status in the current user's library.",
+    access=ToolAccess.WRITE,
+    arguments_model=UpdateBookStatusArguments,
+    result_model=UpdateBookStatusResult,
 )

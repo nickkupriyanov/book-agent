@@ -16,6 +16,7 @@ class ToolErrorCode(str, Enum):
     INVALID_RESULT = "invalid_result"
     BOOK_NOT_FOUND = "book_not_found"
     BOOK_ALREADY_IN_LIBRARY = "book_already_in_library"
+    LIBRARY_ENTRY_NOT_FOUND = "library_entry_not_found"
 
 
 class ToolCall(BaseModel):
