@@ -31,3 +31,4 @@ def test_chat_service_sends_system_and_user_messages_once() -> None:
             ),
         ]
     ]
+    assert provider.tools_by_call == [()]

@@ -41,7 +41,7 @@ def test_generate_sends_model_and_messages_to_chat_completions() -> None:
         Message(role=MessageRole.ASSISTANT, content="Предыдущий ответ"),
     ]
 
-    provider.generate(messages)
+    provider.generate(messages, tools=())
 
     client.chat.completions.create.assert_called_once_with(
         model="test-model",
@@ -62,7 +62,8 @@ def test_generate_converts_deepseek_response_to_model_response() -> None:
     provider = DeepSeekProvider(client=make_client(response), model="test-model")
 
     result = provider.generate(
-        [Message(role=MessageRole.USER, content="Сообщение")]
+        [Message(role=MessageRole.USER, content="Сообщение")],
+        tools=(),
     )
 
     assert result == ModelResponse(
@@ -81,7 +82,8 @@ def test_generate_allows_response_without_usage() -> None:
     provider = DeepSeekProvider(client=make_client(response), model="test-model")
 
     result = provider.generate(
-        [Message(role=MessageRole.USER, content="Сообщение")]
+        [Message(role=MessageRole.USER, content="Сообщение")],
+        tools=(),
     )
 
     assert result.usage is None
@@ -96,7 +98,8 @@ def test_generate_converts_timeout_error() -> None:
 
     with pytest.raises(LLMTimeoutError):
         provider.generate(
-            [Message(role=MessageRole.USER, content="Сообщение")]
+            [Message(role=MessageRole.USER, content="Сообщение")],
+            tools=(),
         )
 
 
@@ -109,7 +112,8 @@ def test_generate_converts_connection_error() -> None:
 
     with pytest.raises(LLMUnavailableError):
         provider.generate(
-            [Message(role=MessageRole.USER, content="Сообщение")]
+            [Message(role=MessageRole.USER, content="Сообщение")],
+            tools=(),
         )
 
 
@@ -129,7 +133,8 @@ def test_generate_converts_authentication_error() -> None:
 
     with pytest.raises(LLMUnavailableError):
         provider.generate(
-            [Message(role=MessageRole.USER, content="Сообщение")]
+            [Message(role=MessageRole.USER, content="Сообщение")],
+            tools=(),
         )
 
 
@@ -149,7 +154,8 @@ def test_generate_converts_rate_limit_error() -> None:
 
     with pytest.raises(LLMRateLimitError):
         provider.generate(
-            [Message(role=MessageRole.USER, content="Сообщение")]
+            [Message(role=MessageRole.USER, content="Сообщение")],
+            tools=(),
         )
 
 
@@ -169,5 +175,6 @@ def test_generate_converts_other_api_status_error() -> None:
 
     with pytest.raises(LLMProviderError):
         provider.generate(
-            [Message(role=MessageRole.USER, content="Сообщение")]
+            [Message(role=MessageRole.USER, content="Сообщение")],
+            tools=(),
         )

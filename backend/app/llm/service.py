@@ -16,4 +16,4 @@ class ChatService:
             ),
             Message(role=MessageRole.USER, content=user_message),
         ]
-        return self.provider.generate(messages)
+        return self.provider.generate(messages, tools=())

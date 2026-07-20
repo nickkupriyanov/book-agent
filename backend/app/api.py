@@ -20,7 +20,11 @@ from app.service import BookService
 router = APIRouter(prefix="/api")
 
 
-@router.post("/chat", response_model=ModelResponse)
+@router.post(
+    "/chat",
+    response_model=ModelResponse,
+    response_model_exclude={"tool_calls"},
+)
 def chat(
     payload: ChatRequest,
     service: Annotated[ChatService, Depends(get_chat_service)],

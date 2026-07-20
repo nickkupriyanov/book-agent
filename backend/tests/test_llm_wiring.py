@@ -42,7 +42,10 @@ def test_get_llm_provider_builds_configured_deepseek_client() -> None:
 
     with patch("app.dependencies.OpenAI", return_value=sdk_client) as openai_class:
         provider = get_llm_provider(settings)
-        provider.generate([Message(role=MessageRole.USER, content="Вопрос")])
+        provider.generate(
+            [Message(role=MessageRole.USER, content="Вопрос")],
+            tools=(),
+        )
 
     openai_class.assert_called_once_with(
         api_key="test-secret",

@@ -18,6 +18,7 @@ from app.llm.exceptions import (
     LLMUnavailableError,
 )
 from app.llm.models import Message, MessageRole, ModelResponse, TokenUsage
+from app.tools.models import ToolDefinition
 
 
 def _to_api_message(message: Message) -> ChatCompletionMessageParam:
@@ -37,7 +38,13 @@ class DeepSeekProvider:
         self._client = client
         self._model = model
 
-    def generate(self, messages: Sequence[Message]) -> ModelResponse:
+    def generate(
+        self,
+        messages: Sequence[Message],
+        tools: Sequence[ToolDefinition],
+    ) -> ModelResponse:
+        if tools:
+            raise NotImplementedError("DeepSeek tool calling is not implemented yet")
         api_messages: list[ChatCompletionMessageParam] = [
             _to_api_message(message) for message in messages
         ]
