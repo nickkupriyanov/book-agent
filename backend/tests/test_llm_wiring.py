@@ -16,6 +16,7 @@ def test_settings_read_deepseek_configuration(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://deepseek.example")
     monkeypatch.setenv("DEEPSEEK_MODEL", "test-model")
     monkeypatch.setenv("DEEPSEEK_TIMEOUT_SECONDS", "12.5")
+    monkeypatch.setenv("AGENT_MAX_STEPS", "7")
 
     settings = Settings()
 
@@ -24,6 +25,7 @@ def test_settings_read_deepseek_configuration(monkeypatch: MonkeyPatch) -> None:
     assert settings.deepseek_base_url == "https://deepseek.example"
     assert settings.deepseek_model == "test-model"
     assert settings.deepseek_timeout_seconds == 12.5
+    assert settings.agent_max_steps == 7
 
 
 def test_get_llm_provider_builds_configured_deepseek_client() -> None:

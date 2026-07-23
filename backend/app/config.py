@@ -1,7 +1,7 @@
 from functools import lru_cache
 from uuid import UUID
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_timeout_seconds: float = 30.0
+    agent_max_steps: int = Field(default=5, ge=1)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
