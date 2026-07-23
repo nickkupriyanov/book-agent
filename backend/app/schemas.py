@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import ReadingStatus
+from app.models import AgentRunStatus, ReadingStatus
 
 
 class HealthResponse(BaseModel):
@@ -12,6 +12,33 @@ class HealthResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
+
+
+class AgentRunRequest(BaseModel):
+    message: str = Field(min_length=1)
+
+
+class AgentStepResponse(BaseModel):
+    step_number: int
+    messages: list[dict[str, object]]
+    response: dict[str, object] | None
+    tool_results: list[dict[str, object]]
+    error: str | None
+    duration_ms: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AgentRunResponse(BaseModel):
+    id: UUID
+    status: AgentRunStatus
+    user_message: str
+    final_answer: str | None
+    stop_reason: str | None
+    error: str | None
+    steps: list[AgentStepResponse]
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BookResponse(BaseModel):

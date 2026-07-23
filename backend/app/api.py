@@ -3,12 +3,15 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.config import get_settings
-from app.dependencies import get_book_service, get_chat_service
+from app.agent.service import AgentService
+from app.config import Settings, get_settings
+from app.dependencies import get_agent_service, get_book_service, get_chat_service
 from app.llm.models import ModelResponse
 from app.llm.service import ChatService
 from app.models import ReadingStatus
 from app.schemas import (
+    AgentRunRequest,
+    AgentRunResponse,
     BookResponse,
     ChatRequest,
     LibraryEntryCreate,
@@ -30,6 +33,20 @@ def chat(
     service: Annotated[ChatService, Depends(get_chat_service)],
 ) -> ModelResponse:
     return service.reply(payload.message)
+
+
+@router.post(
+    "/agent/runs",
+    response_model=AgentRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_agent_run(
+    payload: AgentRunRequest,
+    service: Annotated[AgentService, Depends(get_agent_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AgentRunResponse:
+    run = service.run(settings.demo_user_id, payload.message)
+    return AgentRunResponse.model_validate(run)
 
 
 @router.get("/books/search", response_model=list[BookResponse])
