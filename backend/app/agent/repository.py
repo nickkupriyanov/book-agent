@@ -52,5 +52,6 @@ class AgentRunRepository:
             select(AgentRun)
             .where(AgentRun.id == run_id)
             .options(selectinload(AgentRun.steps))
+            .execution_options(populate_existing=True)
         )
         return self._session.scalar(statement)
