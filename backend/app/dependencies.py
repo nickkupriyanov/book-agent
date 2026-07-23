@@ -4,6 +4,8 @@ from fastapi import Depends
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
+from app.agent.repository import AgentRunRepository
+from app.agent.service import AgentService
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.llm.deepseek import DeepSeekProvider
@@ -12,6 +14,16 @@ from app.llm.provider import LLMProvider
 from app.llm.service import ChatService
 from app.repository import BookRepository
 from app.service import BookService
+from app.tools.books import SEARCH_BOOKS_TOOL, SearchBooksHandler
+from app.tools.library import (
+    ADD_BOOK_TOOL,
+    GET_USER_LIBRARY_TOOL,
+    UPDATE_BOOK_STATUS_TOOL,
+    AddBookHandler,
+    GetUserLibraryHandler,
+    UpdateBookStatusHandler,
+)
+from app.tools.registry import ToolRegistry
 
 
 def get_book_service(db: Annotated[Session, Depends(get_db)]) -> BookService:
@@ -37,3 +49,44 @@ def get_chat_service(
     provider: Annotated[LLMProvider, Depends(get_llm_provider)],
 ) -> ChatService:
     return ChatService(provider)
+
+
+def get_tool_registry(
+    service: Annotated[BookService, Depends(get_book_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(SEARCH_BOOKS_TOOL, SearchBooksHandler(service))
+    registry.register(
+        GET_USER_LIBRARY_TOOL,
+        GetUserLibraryHandler(service, settings.demo_user_id),
+    )
+    registry.register(
+        ADD_BOOK_TOOL,
+        AddBookHandler(service, settings.demo_user_id),
+    )
+    registry.register(
+        UPDATE_BOOK_STATUS_TOOL,
+        UpdateBookStatusHandler(service, settings.demo_user_id),
+    )
+    return registry
+
+
+def get_agent_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> AgentRunRepository:
+    return AgentRunRepository(db)
+
+
+def get_agent_service(
+    provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+    registry: Annotated[ToolRegistry, Depends(get_tool_registry)],
+    repository: Annotated[AgentRunRepository, Depends(get_agent_repository)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AgentService:
+    return AgentService(
+        provider,
+        registry,
+        repository,
+        max_steps=settings.agent_max_steps,
+    )
