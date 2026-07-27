@@ -55,7 +55,12 @@ def test_update_book_status_handler_uses_scoped_user_and_returns_entry() -> None
         book_id=DUNE_ID,
         status=ReadingStatus.FINISHED,
     )
-    entry.book = Book(id=DUNE_ID, title="Дюна", author="Фрэнк Герберт")
+    entry.book = Book(
+        id=DUNE_ID,
+        title="Дюна",
+        author="Фрэнк Герберт",
+        tags=["politics", "science_fiction", "space_opera"],
+    )
     service = create_autospec(BookService, instance=True)
     service.update_status.return_value = entry
     handler = UpdateBookStatusHandler(service=service, user_id=DEMO_USER_ID)

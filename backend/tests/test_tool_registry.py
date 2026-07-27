@@ -35,6 +35,7 @@ def test_registry_validates_arguments_and_calls_handler() -> None:
                     id=DUNE_ID,
                     title="Дюна",
                     author="Фрэнк Герберт",
+                    tags=["politics", "science_fiction", "space_opera"],
                 )
             ]
         )
@@ -59,6 +60,7 @@ def test_registry_validates_arguments_and_calls_handler() -> None:
                 "id": str(DUNE_ID),
                 "title": "Дюна",
                 "author": "Фрэнк Герберт",
+                "tags": ["politics", "science_fiction", "space_opera"],
             }
         ]
     }

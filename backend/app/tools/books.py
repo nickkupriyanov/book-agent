@@ -17,6 +17,7 @@ class BookToolResult(BaseModel):
     id: UUID
     title: str
     author: str
+    tags: list[str]
 
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 

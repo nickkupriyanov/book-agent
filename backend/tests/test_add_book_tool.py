@@ -61,7 +61,12 @@ def test_add_book_handler_uses_scoped_user_and_returns_entry() -> None:
         book_id=DUNE_ID,
         status=ReadingStatus.WANT_TO_READ,
     )
-    entry.book = Book(id=DUNE_ID, title="Дюна", author="Фрэнк Герберт")
+    entry.book = Book(
+        id=DUNE_ID,
+        title="Дюна",
+        author="Фрэнк Герберт",
+        tags=["politics", "science_fiction", "space_opera"],
+    )
     service = create_autospec(BookService, instance=True)
     service.add_book.return_value = entry
     handler = AddBookHandler(service=service, user_id=DEMO_USER_ID)

@@ -31,7 +31,12 @@ def test_handler_passes_query_and_limit_to_service() -> None:
 def test_handler_converts_domain_book_to_tool_result() -> None:
     service = create_autospec(BookService, instance=True)
     service.search_books.return_value = [
-        Book(id=DUNE_ID, title="Дюна", author="Фрэнк Герберт")
+        Book(
+            id=DUNE_ID,
+            title="Дюна",
+            author="Фрэнк Герберт",
+            tags=["politics", "science_fiction", "space_opera"],
+        )
     ]
     handler = SearchBooksHandler(service)
 
@@ -43,6 +48,7 @@ def test_handler_converts_domain_book_to_tool_result() -> None:
                 id=DUNE_ID,
                 title="Дюна",
                 author="Фрэнк Герберт",
+                tags=["politics", "science_fiction", "space_opera"],
             )
         ]
     )
@@ -57,4 +63,9 @@ def test_handler_searches_seeded_database_and_returns_empty_result(
     missing = handler(SearchBooksArguments(query="несуществующая книга"))
 
     assert [book.title for book in found.books] == ["Дюна"]
+    assert found.books[0].tags == [
+        "politics",
+        "science_fiction",
+        "space_opera",
+    ]
     assert missing == SearchBooksResult(books=[])

@@ -45,6 +45,7 @@ class BookResponse(BaseModel):
     id: UUID
     title: str
     author: str
+    tags: list[str]
 
     model_config = ConfigDict(from_attributes=True)
 

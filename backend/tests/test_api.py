@@ -27,6 +27,7 @@ def test_get_book_by_id(client: TestClient) -> None:
         "id": DUNE_ID,
         "title": "Дюна",
         "author": "Фрэнк Герберт",
+        "tags": ["politics", "science_fiction", "space_opera"],
     }
 
 
