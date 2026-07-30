@@ -15,6 +15,9 @@ class BookRepository:
         normalized_query = query.casefold()
         return [book for book in books if normalized_query in book.title.casefold()][:limit]
 
+    def list_books(self) -> list[Book]:
+        return list(self.session.scalars(select(Book).order_by(Book.id)))
+
     def get_book(self, book_id: UUID) -> Book | None:
         return self.session.get(Book, book_id)
 
