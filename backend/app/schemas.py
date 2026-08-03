@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.agent.state import AgentWorkingState
 from app.models import AgentRunStatus, ReadingStatus
 
 
@@ -33,6 +34,7 @@ class AgentRunResponse(BaseModel):
     id: UUID
     status: AgentRunStatus
     user_message: str
+    working_state: AgentWorkingState
     final_answer: str | None
     stop_reason: str | None
     error: str | None

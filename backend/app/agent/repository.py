@@ -3,6 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.agent.state import AgentWorkingState
 from app.models import AgentRun, AgentStep
 
 
@@ -10,8 +11,17 @@ class AgentRunRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def create_run(self, user_id: UUID, user_message: str) -> AgentRun:
-        run = AgentRun(user_id=user_id, user_message=user_message)
+    def create_run(
+        self,
+        user_id: UUID,
+        user_message: str,
+        working_state: AgentWorkingState,
+    ) -> AgentRun:
+        run = AgentRun(
+            user_id=user_id,
+            user_message=user_message,
+            working_state=working_state.model_dump(mode="json"),
+        )
         self._session.add(run)
         self._session.commit()
         self._session.refresh(run)

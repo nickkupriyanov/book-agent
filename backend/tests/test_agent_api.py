@@ -57,6 +57,23 @@ def test_create_agent_run_executes_tools_and_returns_trace(
     payload = response.json()
     assert payload["status"] == "completed"
     assert payload["user_message"] == "Найди Дюну и добавь в список на чтение"
+    assert payload["working_state"] == {
+        "goal": "Найди Дюну и добавь в список на чтение",
+        "completed_actions": [
+            {
+                "step_number": 1,
+                "tool_call_id": "search-1",
+                "tool_name": "search_books",
+            },
+            {
+                "step_number": 2,
+                "tool_call_id": "add-1",
+                "tool_name": "add_book",
+            },
+        ],
+        "initial_step_budget": 5,
+        "remaining_step_budget": 2,
+    }
     assert payload["final_answer"] == "Добавил «Дюну» в список на чтение."
     assert payload["stop_reason"] == "final_response"
     assert payload["error"] is None

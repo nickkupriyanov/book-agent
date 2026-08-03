@@ -5,14 +5,27 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.agent.repository import AgentRunRepository
+from app.agent.state import AgentWorkingState, CompletedAction
 from app.models import AgentRunStatus
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
+def make_working_state(goal: str) -> AgentWorkingState:
+    return AgentWorkingState(
+        goal=goal,
+        initial_step_budget=5,
+        remaining_step_budget=5,
+    )
+
+
 def test_agent_trace_is_restored_in_step_order(session: Session) -> None:
     repository = AgentRunRepository(session)
-    run = repository.create_run(USER_ID, "Найди Дюну")
+    run = repository.create_run(
+        USER_ID,
+        "Найди Дюну",
+        make_working_state("Найди Дюну"),
+    )
 
     repository.add_step(
         run_id=run.id,
@@ -48,6 +61,18 @@ def test_agent_trace_is_restored_in_step_order(session: Session) -> None:
         duration_ms=25,
     )
     run.status = AgentRunStatus.COMPLETED
+    run.working_state = AgentWorkingState(
+        goal="Найди Дюну",
+        completed_actions=[
+            CompletedAction(
+                step_number=1,
+                tool_call_id="call-1",
+                tool_name="search_books",
+            )
+        ],
+        initial_step_budget=5,
+        remaining_step_budget=3,
+    ).model_dump(mode="json")
     run.final_answer = "Дюна найдена"
     run.stop_reason = "final_response"
     repository.save_run(run)
@@ -58,6 +83,20 @@ def test_agent_trace_is_restored_in_step_order(session: Session) -> None:
         assert restored is not None
         assert restored.user_id == USER_ID
         assert restored.user_message == "Найди Дюну"
+        assert AgentWorkingState.model_validate(restored.working_state) == (
+            AgentWorkingState(
+                goal="Найди Дюну",
+                completed_actions=[
+                    CompletedAction(
+                        step_number=1,
+                        tool_call_id="call-1",
+                        tool_name="search_books",
+                    )
+                ],
+                initial_step_budget=5,
+                remaining_step_budget=3,
+            )
+        )
         assert restored.status is AgentRunStatus.COMPLETED
         assert restored.final_answer == "Дюна найдена"
         assert restored.stop_reason == "final_response"
@@ -79,7 +118,11 @@ def test_agent_trace_is_restored_in_step_order(session: Session) -> None:
 
 def test_agent_steps_reject_duplicate_number_per_run(session: Session) -> None:
     repository = AgentRunRepository(session)
-    run = repository.create_run(USER_ID, "Найди Дюну")
+    run = repository.create_run(
+        USER_ID,
+        "Найди Дюну",
+        make_working_state("Найди Дюну"),
+    )
     step_data = {
         "run_id": run.id,
         "step_number": 1,

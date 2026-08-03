@@ -7,10 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agent.repository import AgentRunRepository
-from app.agent.service import AgentService
+from app.agent.service import AgentService, WORKING_STATE_PREFIX
+from app.agent.state import AgentWorkingState, CompletedAction
 from app.llm.fake import FakeLLMProvider
 from app.llm.exceptions import LLMTimeoutError
-from app.llm.models import MessageRole, ModelResponse
+from app.llm.models import Message, MessageRole, ModelResponse
 from app.models import AgentRun, AgentRunStatus, ReadingStatus
 from app.repository import BookRepository
 from app.service import BookService
@@ -25,6 +26,18 @@ from app.tools.registry import ToolRegistry
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 DUNE_ID = UUID("10000000-0000-0000-0000-000000000001")
+
+
+def working_state_from_provider_call(
+    messages: list[Message],
+) -> AgentWorkingState:
+    system_message = messages[0]
+    assert system_message.role is MessageRole.SYSTEM
+    _, serialized_state = system_message.content.split(
+        WORKING_STATE_PREFIX,
+        maxsplit=1,
+    )
+    return AgentWorkingState.model_validate(json.loads(serialized_state))
 
 
 def test_agent_runs_two_tools_and_returns_final_answer(session: Session) -> None:
@@ -77,6 +90,25 @@ def test_agent_runs_two_tools_and_returns_final_answer(session: Session) -> None
     assert run.steps[1].response["tool_calls"][0]["id"] == "add-1"
     assert run.steps[1].tool_results[0]["tool_call_id"] == "add-1"
     assert run.steps[2].tool_results == []
+    assert AgentWorkingState.model_validate(run.working_state) == (
+        AgentWorkingState(
+            goal="Найди Дюну и добавь в список на чтение",
+            completed_actions=[
+                CompletedAction(
+                    step_number=1,
+                    tool_call_id="search-1",
+                    tool_name="search_books",
+                ),
+                CompletedAction(
+                    step_number=2,
+                    tool_call_id="add-1",
+                    tool_name="add_book",
+                ),
+            ],
+            initial_step_budget=5,
+            remaining_step_budget=2,
+        )
+    )
 
     library = book_service.get_library(USER_ID)
     assert len(library) == 1
@@ -88,6 +120,18 @@ def test_agent_runs_two_tools_and_returns_final_answer(session: Session) -> None
     assert provider.calls[1][-1].tool_call_id == "search-1"
     assert json.loads(provider.calls[1][-1].content)["tool_call_id"] == "search-1"
     assert provider.calls[2][-1].tool_call_id == "add-1"
+    provider_states = [
+        working_state_from_provider_call(call) for call in provider.calls
+    ]
+    assert [state.remaining_step_budget for state in provider_states] == [
+        5,
+        4,
+        3,
+    ]
+    assert [
+        [action.tool_name for action in state.completed_actions]
+        for state in provider_states
+    ] == [[], ["search_books"], ["search_books", "add_book"]]
     assert [definition.name for definition in provider.tools_by_call[0]] == [
         "search_books",
         "add_book",
@@ -177,6 +221,9 @@ def test_agent_stops_after_maximum_model_calls(session: Session) -> None:
     assert run.stop_reason == "max_steps"
     assert len(run.steps) == 2
     assert len(provider.calls) == 2
+    state = AgentWorkingState.model_validate(run.working_state)
+    assert state.initial_step_budget == 2
+    assert state.remaining_step_budget == 0
 
 
 def test_agent_stops_before_repeating_same_tool_call(session: Session) -> None:
@@ -217,6 +264,11 @@ def test_agent_stops_before_repeating_same_tool_call(session: Session) -> None:
     assert len(run.steps) == 2
     assert run.steps[1].tool_results == []
     assert run.steps[1].error == "Repeated tool call"
+    state = AgentWorkingState.model_validate(run.working_state)
+    assert state.remaining_step_budget == 3
+    assert [action.tool_call_id for action in state.completed_actions] == [
+        "search-1"
+    ]
     handler.assert_called_once()
 
 
@@ -260,6 +312,10 @@ def test_agent_returns_tool_error_and_allows_model_to_correct_it(
     first_result = json.loads(provider.calls[1][-1].content)
     assert first_result["error"]["code"] == "invalid_arguments"
     handler.assert_called_once()
+    state = AgentWorkingState.model_validate(run.working_state)
+    assert [action.tool_call_id for action in state.completed_actions] == [
+        "valid-1"
+    ]
 
 
 def test_agent_returns_unknown_tool_error_to_model(session: Session) -> None:
@@ -303,6 +359,9 @@ def test_agent_persists_provider_error_and_reraises(session: Session) -> None:
     assert run.status is AgentRunStatus.FAILED
     assert run.stop_reason == "provider_error"
     assert run.error == "LLMTimeoutError"
+    state = AgentWorkingState.model_validate(run.working_state)
+    assert state.remaining_step_budget == 4
+    assert state.completed_actions == ()
     assert run.steps[0].response is None
     assert run.steps[0].error == "LLMTimeoutError"
     assert "internal SDK details" not in run.steps[0].error
@@ -341,6 +400,9 @@ def test_agent_persists_unexpected_tool_error_and_reraises(
     assert run.status is AgentRunStatus.FAILED
     assert run.stop_reason == "unexpected_error"
     assert run.error == "RuntimeError"
+    state = AgentWorkingState.model_validate(run.working_state)
+    assert state.remaining_step_budget == 4
+    assert state.completed_actions == ()
     assert run.steps[0].response["tool_calls"][0]["id"] == "search-1"
     assert run.steps[0].error == "RuntimeError"
 

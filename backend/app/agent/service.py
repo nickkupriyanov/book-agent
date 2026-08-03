@@ -3,6 +3,7 @@ from time import perf_counter
 from uuid import UUID
 
 from app.agent.repository import AgentRunRepository
+from app.agent.state import AgentWorkingState, CompletedAction
 from app.llm.exceptions import (
     LLMProviderError,
     LLMRateLimitError,
@@ -19,6 +20,7 @@ AGENT_SYSTEM_PROMPT = (
     "Ты помощник по книгам. Используй доступные инструменты, "
     "когда для ответа нужны данные или действие."
 )
+WORKING_STATE_PREFIX = "\n\nРабочее состояние backend (только для чтения): "
 PROVIDER_ERRORS = (
     LLMProviderError,
     LLMRateLimitError,
@@ -33,6 +35,51 @@ def _tool_result_message(result: ToolResult) -> Message:
         content=json.dumps(result.model_dump(mode="json"), ensure_ascii=False),
         tool_call_id=result.tool_call_id,
         tool_name=result.tool_name,
+    )
+
+
+def _system_message(state: AgentWorkingState) -> Message:
+    return Message(
+        role=MessageRole.SYSTEM,
+        content=(
+            AGENT_SYSTEM_PROMPT
+            + WORKING_STATE_PREFIX
+            + json.dumps(
+                state.model_dump(mode="json"),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        ),
+    )
+
+
+def _consume_step_budget(state: AgentWorkingState) -> AgentWorkingState:
+    return AgentWorkingState(
+        goal=state.goal,
+        completed_actions=state.completed_actions,
+        initial_step_budget=state.initial_step_budget,
+        remaining_step_budget=state.remaining_step_budget - 1,
+    )
+
+
+def _record_completed_action(
+    state: AgentWorkingState,
+    *,
+    step_number: int,
+    call: ToolCall,
+) -> AgentWorkingState:
+    return AgentWorkingState(
+        goal=state.goal,
+        completed_actions=[
+            *state.completed_actions,
+            CompletedAction(
+                step_number=step_number,
+                tool_call_id=call.id,
+                tool_name=call.name,
+            ),
+        ],
+        initial_step_budget=state.initial_step_budget,
+        remaining_step_budget=state.remaining_step_budget,
     )
 
 
@@ -135,24 +182,34 @@ class AgentService:
         self._fail_run(run, stop_reason, error)
 
     def run(self, user_id: UUID, user_message: str) -> AgentRun:
-        run = self._repository.create_run(user_id, user_message)
-        messages = [
-            Message(role=MessageRole.SYSTEM, content=AGENT_SYSTEM_PROMPT),
-            Message(role=MessageRole.USER, content=user_message),
-        ]
+        working_state = AgentWorkingState(
+            goal=user_message,
+            initial_step_budget=self._max_steps,
+            remaining_step_budget=self._max_steps,
+        )
+        run = self._repository.create_run(
+            user_id,
+            user_message,
+            working_state,
+        )
+        messages = [Message(role=MessageRole.USER, content=user_message)]
         previous_signature: tuple[tuple[str, str], ...] | None = None
 
         for step_number in range(1, self._max_steps + 1):
+            provider_messages = [_system_message(working_state), *messages]
             step_messages = [
-                message.model_dump(mode="json") for message in messages
+                message.model_dump(mode="json")
+                for message in provider_messages
             ]
             started_at = perf_counter()
             try:
                 response = self._provider.generate(
-                    messages,
+                    provider_messages,
                     tools=self._registry.definitions(),
                 )
             except PROVIDER_ERRORS as exc:
+                working_state = _consume_step_budget(working_state)
+                run.working_state = working_state.model_dump(mode="json")
                 self._record_exception(
                     run=run,
                     step_number=step_number,
@@ -165,6 +222,8 @@ class AgentService:
                 )
                 raise
             except Exception as exc:
+                working_state = _consume_step_budget(working_state)
+                run.working_state = working_state.model_dump(mode="json")
                 self._record_exception(
                     run=run,
                     step_number=step_number,
@@ -177,6 +236,8 @@ class AgentService:
                 )
                 raise
 
+            working_state = _consume_step_budget(working_state)
+            run.working_state = working_state.model_dump(mode="json")
             signature = _tool_call_signature(response.tool_calls)
             if response.tool_calls and signature == previous_signature:
                 error = "Repeated tool call"
@@ -195,8 +256,16 @@ class AgentService:
             tool_results: list[ToolResult] = []
             try:
                 for call in response.tool_calls:
-                    tool_results.append(self._registry.execute(call))
+                    result = self._registry.execute(call)
+                    tool_results.append(result)
+                    if result.error is None:
+                        working_state = _record_completed_action(
+                            working_state,
+                            step_number=step_number,
+                            call=call,
+                        )
             except Exception as exc:
+                run.working_state = working_state.model_dump(mode="json")
                 self._record_exception(
                     run=run,
                     step_number=step_number,
@@ -209,6 +278,7 @@ class AgentService:
                 )
                 raise
 
+            run.working_state = working_state.model_dump(mode="json")
             self._save_step(
                 run=run,
                 step_number=step_number,

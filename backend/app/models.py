@@ -91,6 +91,7 @@ class AgentRun(Base):
         default=AgentRunStatus.RUNNING,
     )
     user_message: Mapped[str] = mapped_column(Text)
+    working_state: Mapped[dict[str, object]] = mapped_column(JSON)
     final_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     stop_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
