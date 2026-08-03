@@ -20,7 +20,7 @@ OTHER_USER_ID = UUID("00000000-0000-0000-0000-000000000002")
 DUNE_ID = UUID("10000000-0000-0000-0000-000000000001")
 
 
-def test_tool_registry_wires_four_allowed_tools_for_configured_user(
+def test_tool_registry_wires_five_allowed_tools_for_configured_user(
     session: Session,
 ) -> None:
     service = BookService(BookRepository(session))
@@ -28,6 +28,7 @@ def test_tool_registry_wires_four_allowed_tools_for_configured_user(
 
     assert [definition.name for definition in registry.definitions()] == [
         "search_books",
+        "find_similar_books",
         "get_user_library",
         "add_book",
         "update_book_status",

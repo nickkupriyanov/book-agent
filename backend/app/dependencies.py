@@ -23,6 +23,10 @@ from app.tools.library import (
     GetUserLibraryHandler,
     UpdateBookStatusHandler,
 )
+from app.tools.recommendations import (
+    FIND_SIMILAR_BOOKS_TOOL,
+    FindSimilarBooksHandler,
+)
 from app.tools.registry import ToolRegistry
 
 
@@ -57,6 +61,10 @@ def get_tool_registry(
 ) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(SEARCH_BOOKS_TOOL, SearchBooksHandler(service))
+    registry.register(
+        FIND_SIMILAR_BOOKS_TOOL,
+        FindSimilarBooksHandler(service, settings.demo_user_id),
+    )
     registry.register(
         GET_USER_LIBRARY_TOOL,
         GetUserLibraryHandler(service, settings.demo_user_id),
