@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.exceptions import (
     BookNotFoundError,
@@ -16,6 +16,8 @@ from app.tools.models import ToolAccess, ToolDefinition, ToolErrorCode
 
 class GetUserLibraryArguments(BaseModel):
     status: ReadingStatus | None = None
+    limit: int | None = Field(default=None, ge=1, le=50)
+    recent_first: bool = False
 
     model_config = ConfigDict(extra="forbid")
 
@@ -45,6 +47,8 @@ class GetUserLibraryHandler:
         entries = self._service.get_library(
             user_id=self._user_id,
             status=arguments.status,
+            limit=arguments.limit,
+            recent_first=arguments.recent_first,
         )
         return GetUserLibraryResult(
             entries=[
@@ -135,7 +139,8 @@ GET_USER_LIBRARY_TOOL = ToolDefinition(
     name="get_user_library",
     description=(
         "Get books from the current user's library, optionally filtered "
-        "by reading status."
+        "by reading status. To get recently finished books, use "
+        "status='finished', recent_first=true, and a limit."
     ),
     access=ToolAccess.READ,
     arguments_model=GetUserLibraryArguments,

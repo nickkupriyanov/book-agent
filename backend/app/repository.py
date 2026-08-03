@@ -25,14 +25,30 @@ class BookRepository:
         return self.session.get(LibraryEntry, (user_id, book_id))
 
     def list_library(
-        self, user_id: UUID, status: ReadingStatus | None = None
+        self,
+        user_id: UUID,
+        status: ReadingStatus | None = None,
+        *,
+        limit: int | None = None,
+        recent_first: bool = False,
     ) -> list[LibraryEntry]:
         statement: Select[tuple[LibraryEntry]] = select(LibraryEntry).where(
             LibraryEntry.user_id == user_id
         )
         if status is not None:
             statement = statement.where(LibraryEntry.status == status)
-        statement = statement.order_by(LibraryEntry.created_at, LibraryEntry.book_id)
+        if recent_first:
+            statement = statement.order_by(
+                LibraryEntry.updated_at.desc(),
+                LibraryEntry.book_id,
+            )
+        else:
+            statement = statement.order_by(
+                LibraryEntry.created_at,
+                LibraryEntry.book_id,
+            )
+        if limit is not None:
+            statement = statement.limit(limit)
         return list(self.session.scalars(statement))
 
     def add_library_entry(self, entry: LibraryEntry) -> LibraryEntry:

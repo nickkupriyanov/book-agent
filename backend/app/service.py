@@ -31,9 +31,19 @@ class BookService:
         return book
 
     def get_library(
-        self, user_id: UUID, status: ReadingStatus | None = None
+        self,
+        user_id: UUID,
+        status: ReadingStatus | None = None,
+        *,
+        limit: int | None = None,
+        recent_first: bool = False,
     ) -> list[LibraryEntry]:
-        return self.repository.list_library(user_id=user_id, status=status)
+        return self.repository.list_library(
+            user_id=user_id,
+            status=status,
+            limit=limit,
+            recent_first=recent_first,
+        )
 
     def find_similar_books(
         self,
