@@ -45,6 +45,16 @@ class BookService:
             recent_first=recent_first,
         )
 
+    def get_library_entry(
+        self,
+        user_id: UUID,
+        book_id: UUID,
+    ) -> LibraryEntry:
+        entry = self.repository.get_library_entry(user_id, book_id)
+        if entry is None:
+            raise LibraryEntryNotFoundError(book_id)
+        return entry
+
     def find_similar_books(
         self,
         user_id: UUID,

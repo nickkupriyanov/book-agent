@@ -66,6 +66,7 @@ class AddBookArguments(BaseModel):
 
 class AddBookResult(BaseModel):
     entry: LibraryEntryToolResult
+    changed: bool
 
     model_config = ConfigDict(extra="forbid")
 
@@ -76,6 +77,7 @@ class AddBookHandler:
         self._user_id = user_id
 
     def __call__(self, arguments: AddBookArguments) -> AddBookResult:
+        changed = True
         try:
             entry = self._service.add_book(
                 user_id=self._user_id,
@@ -87,13 +89,25 @@ class AddBookHandler:
                 code=ToolErrorCode.BOOK_NOT_FOUND,
                 message="Book was not found",
             ) from exc
-        except DuplicateLibraryEntryError as exc:
-            raise ToolExecutionError(
-                code=ToolErrorCode.BOOK_ALREADY_IN_LIBRARY,
-                message="Book is already in the library",
-            ) from exc
+        except DuplicateLibraryEntryError:
+            entry = self._service.get_library_entry(
+                user_id=self._user_id,
+                book_id=arguments.book_id,
+            )
+            if entry.status != arguments.status:
+                raise ToolExecutionError(
+                    code=ToolErrorCode.BOOK_ALREADY_IN_LIBRARY,
+                    message=(
+                        "Book is already in the library with a different "
+                        "reading status"
+                    ),
+                )
+            changed = False
 
-        return AddBookResult(entry=LibraryEntryToolResult.model_validate(entry))
+        return AddBookResult(
+            entry=LibraryEntryToolResult.model_validate(entry),
+            changed=changed,
+        )
 
 
 class UpdateBookStatusArguments(BaseModel):
@@ -151,7 +165,8 @@ GET_USER_LIBRARY_TOOL = ToolDefinition(
 ADD_BOOK_TOOL = ToolDefinition(
     name="add_book",
     description=(
-        "Add a book to the current user's library with a reading status."
+        "Add a book to the current user's library with a reading status. "
+        "Repeating the same book and status is a successful no-op."
     ),
     access=ToolAccess.WRITE,
     arguments_model=AddBookArguments,
