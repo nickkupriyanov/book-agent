@@ -1,11 +1,17 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.agent.repository import AgentRunRepository
 from app.agent.service import AgentService
 from app.config import Settings, get_settings
-from app.dependencies import get_agent_service, get_book_service, get_chat_service
+from app.dependencies import (
+    get_agent_repository,
+    get_agent_service,
+    get_book_service,
+    get_chat_service,
+)
 from app.llm.models import ModelResponse
 from app.llm.service import ChatService
 from app.models import ReadingStatus
@@ -46,6 +52,24 @@ def create_agent_run(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AgentRunResponse:
     run = service.run(settings.demo_user_id, payload.message)
+    return AgentRunResponse.model_validate(run)
+
+
+@router.get(
+    "/agent/runs/{run_id}",
+    response_model=AgentRunResponse,
+)
+def get_agent_run(
+    run_id: UUID,
+    repository: Annotated[
+        AgentRunRepository,
+        Depends(get_agent_repository),
+    ],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AgentRunResponse:
+    run = repository.get_run_for_user(run_id, settings.demo_user_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return AgentRunResponse.model_validate(run)
 
 

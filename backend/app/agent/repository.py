@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.agent.state import AgentWorkingState
 from app.models import (
     AgentRun,
+    AgentRunStatus,
     AgentStep,
     PendingAction,
     PendingActionStatus,
@@ -68,10 +69,80 @@ class AgentRunRepository:
         statement = (
             select(AgentRun)
             .where(AgentRun.id == run_id)
-            .options(selectinload(AgentRun.steps))
+            .options(
+                selectinload(AgentRun.steps),
+                selectinload(AgentRun.pending_actions),
+            )
             .execution_options(populate_existing=True)
         )
         return self._session.scalar(statement)
+
+    def get_run_for_user(
+        self,
+        run_id: UUID,
+        user_id: UUID,
+    ) -> AgentRun | None:
+        statement = (
+            select(AgentRun)
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.user_id == user_id,
+            )
+            .options(
+                selectinload(AgentRun.steps),
+                selectinload(AgentRun.pending_actions),
+            )
+            .execution_options(populate_existing=True)
+        )
+        return self._session.scalar(statement)
+
+    def pause_for_approval(
+        self,
+        *,
+        run: AgentRun,
+        step_number: int,
+        messages: list[dict[str, object]],
+        response: dict[str, object],
+        duration_ms: int,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: dict[str, object],
+        summary: str,
+        idempotency_key: str,
+        expires_at: datetime,
+    ) -> PendingAction:
+        run.status = AgentRunStatus.WAITING_FOR_APPROVAL
+        run.version += 1
+        step = AgentStep(
+            run_id=run.id,
+            step_number=step_number,
+            messages=messages,
+            response=response,
+            tool_results=[],
+            error=None,
+            duration_ms=duration_ms,
+        )
+        action = PendingAction(
+            run_id=run.id,
+            user_id=run.user_id,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            summary=summary,
+            idempotency_key=idempotency_key,
+            expires_at=expires_at,
+            expected_run_version=run.version,
+        )
+        self._session.add_all([step, action])
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        self._session.refresh(run)
+        self._session.refresh(step)
+        self._session.refresh(action)
+        return action
 
     def create_pending_action(
         self,

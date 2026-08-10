@@ -124,6 +124,22 @@ class AgentRun(Base):
         order_by="AgentStep.step_number",
         lazy="selectin",
     )
+    pending_actions: Mapped[list["PendingAction"]] = relationship(
+        cascade="all, delete-orphan",
+        order_by="PendingAction.created_at",
+        lazy="selectin",
+    )
+
+    @property
+    def pending_action(self) -> "PendingAction | None":
+        return next(
+            (
+                action
+                for action in reversed(self.pending_actions)
+                if action.status is PendingActionStatus.PENDING
+            ),
+            None,
+        )
 
 
 class PendingAction(Base):

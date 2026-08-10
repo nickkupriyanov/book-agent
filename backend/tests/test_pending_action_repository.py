@@ -3,13 +3,14 @@ from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.agent.repository import AgentRunRepository
 from app.agent.state import AgentWorkingState
 from app.config import Settings
-from app.models import AgentRunStatus, PendingActionStatus
+from app.models import AgentRunStatus, AgentStep, PendingActionStatus
 from app.tools.library import RemoveBookArguments
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -157,3 +158,57 @@ def test_idempotency_key_is_unique_across_runs(session: Session) -> None:
             expires_at=expires_at,
             expected_run_version=0,
         )
+
+
+def test_pause_transaction_rolls_back_run_and_step_on_pending_conflict(
+    session: Session,
+) -> None:
+    repository = AgentRunRepository(session)
+    run = repository.create_run(USER_ID, "Удали Дюну", make_working_state())
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+    repository.create_pending_action(
+        run_id=run.id,
+        user_id=USER_ID,
+        tool_call_id="existing-remove",
+        tool_name="remove_book",
+        arguments={"book_id": str(BOOK_ID)},
+        summary="Существующее действие",
+        idempotency_key=f"{run.id}:existing-remove",
+        expires_at=expires_at,
+        expected_run_version=0,
+    )
+
+    with pytest.raises(IntegrityError):
+        repository.pause_for_approval(
+            run=run,
+            step_number=1,
+            messages=[{"role": "user", "content": "Удали Дюну"}],
+            response={
+                "text": "",
+                "tool_calls": [
+                    {
+                        "id": "new-remove",
+                        "name": "remove_book",
+                        "arguments": {"book_id": str(BOOK_ID)},
+                    }
+                ],
+            },
+            duration_ms=10,
+            tool_call_id="new-remove",
+            tool_name="remove_book",
+            arguments={"book_id": str(BOOK_ID)},
+            summary="Новое действие",
+            idempotency_key=f"{run.id}:new-remove",
+            expires_at=expires_at,
+        )
+
+    with Session(session.get_bind()) as another_session:
+        restored = AgentRunRepository(another_session).get_run(run.id)
+        assert restored is not None
+        assert restored.status is AgentRunStatus.RUNNING
+        assert restored.version == 0
+        assert another_session.scalars(
+            select(AgentStep).where(AgentStep.run_id == run.id)
+        ).all() == []
+        assert restored.pending_action is not None
+        assert restored.pending_action.tool_call_id == "existing-remove"

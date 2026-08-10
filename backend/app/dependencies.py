@@ -18,9 +18,12 @@ from app.tools.books import SEARCH_BOOKS_TOOL, SearchBooksHandler
 from app.tools.library import (
     ADD_BOOK_TOOL,
     GET_USER_LIBRARY_TOOL,
+    REMOVE_BOOK_TOOL,
     UPDATE_BOOK_STATUS_TOOL,
     AddBookHandler,
     GetUserLibraryHandler,
+    RemoveBookApprovalSummary,
+    RemoveBookHandler,
     UpdateBookStatusHandler,
 )
 from app.tools.recommendations import (
@@ -77,6 +80,14 @@ def get_tool_registry(
         UPDATE_BOOK_STATUS_TOOL,
         UpdateBookStatusHandler(service, settings.demo_user_id),
     )
+    registry.register(
+        REMOVE_BOOK_TOOL,
+        RemoveBookHandler(service, settings.demo_user_id),
+        approval_summary=RemoveBookApprovalSummary(
+            service,
+            settings.demo_user_id,
+        ),
+    )
     return registry
 
 
@@ -97,4 +108,5 @@ def get_agent_service(
         registry,
         repository,
         max_steps=settings.agent_max_steps,
+        approval_ttl_seconds=settings.pending_action_ttl_seconds,
     )

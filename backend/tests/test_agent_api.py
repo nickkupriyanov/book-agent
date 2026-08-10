@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db import get_db
 from app.dependencies import get_llm_provider
 from app.llm.exceptions import LLMTimeoutError
 from app.llm.fake import FakeLLMProvider
@@ -126,3 +127,67 @@ def test_create_agent_run_preserves_provider_http_error_and_trace(
     assert run.status is AgentRunStatus.FAILED
     assert run.stop_reason == "provider_error"
     assert run.steps[0].error == "LLMTimeoutError"
+
+
+def test_remove_book_run_returns_safe_pending_action_and_survives_new_session(
+    client: TestClient,
+    session: Session,
+) -> None:
+    add_response = client.post(
+        "/api/library",
+        json={"book_id": DUNE_ID, "status": "reading"},
+    )
+    assert add_response.status_code == 201
+    provider = FakeLLMProvider(
+        [
+            ModelResponse(
+                text="",
+                tool_calls=[
+                    ToolCall(
+                        id="remove-1",
+                        name="remove_book",
+                        arguments={"book_id": DUNE_ID},
+                    )
+                ],
+            )
+        ]
+    )
+    app.dependency_overrides[get_llm_provider] = lambda: provider
+
+    response = client.post(
+        "/api/agent/runs",
+        json={"message": "Удали Дюну из моей библиотеки"},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "waiting_for_approval"
+    assert payload["final_answer"] is None
+    assert set(payload["pending_action"]) == {
+        "id",
+        "summary",
+        "status",
+        "expires_at",
+    }
+    assert payload["pending_action"]["status"] == "pending"
+    assert payload["pending_action"]["summary"] == (
+        "Удалить «Дюна» (Фрэнк Герберт) из вашей библиотеки."
+    )
+    assert "arguments" not in payload["pending_action"]
+    assert "idempotency_key" not in payload["pending_action"]
+    assert len(client.get("/api/library").json()) == 1
+
+    bind = session.get_bind()
+
+    def override_get_db_with_new_session():
+        with Session(bind) as restarted_session:
+            yield restarted_session
+
+    app.dependency_overrides[get_db] = override_get_db_with_new_session
+    with TestClient(app) as restarted_client:
+        restored_response = restarted_client.get(
+            f"/api/agent/runs/{payload['id']}"
+        )
+
+    assert restored_response.status_code == 200
+    assert restored_response.json()["pending_action"] == payload["pending_action"]

@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent.state import AgentWorkingState
-from app.models import AgentRunStatus, ReadingStatus
+from app.models import AgentRunStatus, PendingActionStatus, ReadingStatus
 
 
 class HealthResponse(BaseModel):
@@ -30,6 +30,15 @@ class AgentStepResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PendingActionResponse(BaseModel):
+    id: UUID
+    summary: str
+    status: PendingActionStatus
+    expires_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AgentRunResponse(BaseModel):
     id: UUID
     status: AgentRunStatus
@@ -38,6 +47,7 @@ class AgentRunResponse(BaseModel):
     final_answer: str | None
     stop_reason: str | None
     error: str | None
+    pending_action: PendingActionResponse | None
     steps: list[AgentStepResponse]
 
     model_config = ConfigDict(from_attributes=True)

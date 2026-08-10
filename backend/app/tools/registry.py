@@ -13,6 +13,7 @@ from app.tools.models import (
 )
 
 ToolHandler = Callable[..., BaseModel]
+ToolApprovalSummary = Callable[[BaseModel], str]
 
 
 class DuplicateToolError(Exception):
@@ -24,6 +25,7 @@ class DuplicateToolError(Exception):
 class _RegisteredTool:
     definition: ToolDefinition
     handler: ToolHandler
+    approval_summary: ToolApprovalSummary | None
 
 
 @dataclass(frozen=True)
@@ -49,10 +51,16 @@ class ToolRegistry:
         self,
         definition: ToolDefinition,
         handler: ToolHandler,
+        *,
+        approval_summary: ToolApprovalSummary | None = None,
     ) -> None:
         if definition.name in self._tools:
             raise DuplicateToolError(definition.name)
-        self._tools[definition.name] = _RegisteredTool(definition, handler)
+        self._tools[definition.name] = _RegisteredTool(
+            definition,
+            handler,
+            approval_summary,
+        )
 
     def definitions(self) -> tuple[ToolDefinition, ...]:
         return tuple(tool.definition for tool in self._tools.values())
@@ -117,6 +125,25 @@ class ToolRegistry:
             tool_name=call.definition.name,
             output=result.model_dump(mode="json"),
         )
+
+    def summarize_for_approval(
+        self,
+        call: PreparedToolCall,
+    ) -> str | ToolResult:
+        summary_builder = call._tool.approval_summary
+        if summary_builder is None:
+            raise RuntimeError(
+                f"Tool has no approval summary builder: {call.definition.name}"
+            )
+
+        try:
+            return summary_builder(call.arguments)
+        except ToolExecutionError as exc:
+            return ToolResult(
+                tool_call_id=call.tool_call_id,
+                tool_name=call.definition.name,
+                error=ToolError(code=exc.code, message=exc.message),
+            )
 
     def execute(
         self,

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 from time import perf_counter
 from uuid import UUID
 
@@ -13,8 +14,14 @@ from app.llm.exceptions import (
 from app.llm.models import Message, MessageRole, ModelResponse
 from app.llm.provider import LLMProvider
 from app.models import AgentRun, AgentRunStatus
-from app.tools.models import ToolCall, ToolResult
-from app.tools.registry import ToolRegistry
+from app.tools.models import (
+    ToolCall,
+    ToolError,
+    ToolErrorCode,
+    ToolResult,
+)
+from app.tools.policy import requires_approval
+from app.tools.registry import PreparedToolCall, ToolRegistry
 
 AGENT_SYSTEM_PROMPT = (
     "Ты помощник по книгам. Используй доступные инструменты, "
@@ -104,6 +111,17 @@ def _tool_call_signature(
     )
 
 
+def _ambiguous_approval_result(call: ToolCall) -> ToolResult:
+    return ToolResult(
+        tool_call_id=call.id,
+        tool_name=call.name,
+        error=ToolError(
+            code=ToolErrorCode.AMBIGUOUS_APPROVAL_BATCH,
+            message="Approval-required tool calls must be submitted alone",
+        ),
+    )
+
+
 class AgentService:
     def __init__(
         self,
@@ -111,13 +129,17 @@ class AgentService:
         registry: ToolRegistry,
         repository: AgentRunRepository,
         max_steps: int = 5,
+        approval_ttl_seconds: int = 900,
     ) -> None:
         if max_steps < 1:
             raise ValueError("max_steps must be at least 1")
+        if approval_ttl_seconds < 1:
+            raise ValueError("approval_ttl_seconds must be at least 1")
         self._provider = provider
         self._registry = registry
         self._repository = repository
         self._max_steps = max_steps
+        self._approval_ttl_seconds = approval_ttl_seconds
 
     def _restored_run(self, run: AgentRun) -> AgentRun:
         restored = self._repository.get_run(run.id)
@@ -259,15 +281,70 @@ class AgentService:
 
             tool_results: list[ToolResult] = []
             try:
-                for call in response.tool_calls:
-                    result = self._registry.execute(call)
-                    tool_results.append(result)
-                    if result.error is None:
-                        working_state = _record_completed_action(
-                            working_state,
+                prepared_calls = [
+                    self._registry.prepare(call)
+                    for call in response.tool_calls
+                ]
+                approval_calls = [
+                    prepared
+                    for prepared in prepared_calls
+                    if isinstance(prepared, PreparedToolCall)
+                    and requires_approval(prepared.definition.access)
+                ]
+
+                if approval_calls and len(response.tool_calls) != 1:
+                    tool_results = [
+                        _ambiguous_approval_result(call)
+                        for call in response.tool_calls
+                    ]
+                elif approval_calls:
+                    prepared = approval_calls[0]
+                    summary = self._registry.summarize_for_approval(prepared)
+                    if isinstance(summary, ToolResult):
+                        tool_results = [summary]
+                    else:
+                        run.working_state = working_state.model_dump(mode="json")
+                        self._repository.pause_for_approval(
+                            run=run,
                             step_number=step_number,
-                            call=call,
+                            messages=step_messages,
+                            response=response.model_dump(mode="json"),
+                            duration_ms=int(
+                                (perf_counter() - started_at) * 1000
+                            ),
+                            tool_call_id=prepared.tool_call_id,
+                            tool_name=prepared.definition.name,
+                            arguments=prepared.canonical_arguments,
+                            summary=summary,
+                            idempotency_key=(
+                                f"{run.id}:{prepared.tool_call_id}"
+                            ),
+                            expires_at=(
+                                datetime.now(timezone.utc)
+                                + timedelta(
+                                    seconds=self._approval_ttl_seconds
+                                )
+                            ),
                         )
+                        return self._restored_run(run)
+                else:
+                    for call, prepared in zip(
+                        response.tool_calls,
+                        prepared_calls,
+                        strict=True,
+                    ):
+                        result = (
+                            prepared
+                            if isinstance(prepared, ToolResult)
+                            else self._registry.execute_prepared(prepared)
+                        )
+                        tool_results.append(result)
+                        if result.error is None:
+                            working_state = _record_completed_action(
+                                working_state,
+                                step_number=step_number,
+                                call=call,
+                            )
             except Exception as exc:
                 run.working_state = working_state.model_dump(mode="json")
                 self._record_exception(

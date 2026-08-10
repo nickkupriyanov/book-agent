@@ -189,6 +189,29 @@ class RemoveBookHandler:
         )
 
 
+class RemoveBookApprovalSummary:
+    def __init__(self, service: BookService, user_id: UUID) -> None:
+        self._service = service
+        self._user_id = user_id
+
+    def __call__(self, arguments: RemoveBookArguments) -> str:
+        try:
+            entry = self._service.get_library_entry(
+                user_id=self._user_id,
+                book_id=arguments.book_id,
+            )
+        except LibraryEntryNotFoundError as exc:
+            raise ToolExecutionError(
+                code=ToolErrorCode.LIBRARY_ENTRY_NOT_FOUND,
+                message="Book is not in the library",
+            ) from exc
+
+        return (
+            f"Удалить «{entry.book.title}» ({entry.book.author}) "
+            "из вашей библиотеки."
+        )
+
+
 GET_USER_LIBRARY_TOOL = ToolDefinition(
     name="get_user_library",
     description=(

@@ -18,6 +18,7 @@ class ToolErrorCode(str, Enum):
     BOOK_NOT_FOUND = "book_not_found"
     BOOK_ALREADY_IN_LIBRARY = "book_already_in_library"
     LIBRARY_ENTRY_NOT_FOUND = "library_entry_not_found"
+    AMBIGUOUS_APPROVAL_BATCH = "ambiguous_approval_batch"
 
 
 class ToolCall(BaseModel):

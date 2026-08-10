@@ -20,12 +20,19 @@ from app.tools.books import (
     SearchBooksHandler,
     SearchBooksResult,
 )
-from app.tools.library import ADD_BOOK_TOOL, AddBookHandler
-from app.tools.models import ToolCall
+from app.tools.library import (
+    ADD_BOOK_TOOL,
+    REMOVE_BOOK_TOOL,
+    AddBookHandler,
+    RemoveBookApprovalSummary,
+    RemoveBookHandler,
+)
+from app.tools.models import ToolCall, ToolErrorCode
 from app.tools.registry import ToolRegistry
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 DUNE_ID = UUID("10000000-0000-0000-0000-000000000001")
+NINETEEN_EIGHTY_FOUR_ID = UUID("10000000-0000-0000-0000-000000000002")
 
 
 def working_state_from_provider_call(
@@ -414,4 +421,141 @@ def test_agent_rejects_non_positive_step_limit(session: Session) -> None:
             ToolRegistry(),
             AgentRunRepository(session),
             max_steps=0,
+        )
+
+
+def test_agent_pauses_before_destructive_handler_and_persists_action(
+    session: Session,
+) -> None:
+    book_service = BookService(BookRepository(session))
+    book_service.add_book(USER_ID, DUNE_ID, ReadingStatus.READING)
+    remove_handler = Mock(wraps=RemoveBookHandler(book_service, USER_ID))
+    registry = ToolRegistry()
+    registry.register(
+        REMOVE_BOOK_TOOL,
+        remove_handler,
+        approval_summary=RemoveBookApprovalSummary(book_service, USER_ID),
+    )
+    provider = FakeLLMProvider(
+        [
+            ModelResponse(
+                text="",
+                tool_calls=[
+                    ToolCall(
+                        id="remove-1",
+                        name="remove_book",
+                        arguments={"book_id": str(DUNE_ID)},
+                    )
+                ],
+            )
+        ]
+    )
+    agent = AgentService(provider, registry, AgentRunRepository(session))
+
+    run = agent.run(USER_ID, "Удали Дюну из моей библиотеки")
+
+    assert run.status is AgentRunStatus.WAITING_FOR_APPROVAL
+    assert run.version == 1
+    assert run.final_answer is None
+    assert run.stop_reason is None
+    assert run.error is None
+    assert len(run.steps) == 1
+    assert run.steps[0].response["tool_calls"][0]["id"] == "remove-1"
+    assert run.steps[0].tool_results == []
+    assert run.pending_action is not None
+    assert run.pending_action.tool_call_id == "remove-1"
+    assert run.pending_action.arguments == {"book_id": str(DUNE_ID)}
+    assert run.pending_action.summary == (
+        "Удалить «Дюна» (Фрэнк Герберт) из вашей библиотеки."
+    )
+    assert run.pending_action.expected_run_version == 1
+    assert len(book_service.get_library(USER_ID)) == 1
+    assert len(provider.calls) == 1
+    remove_handler.assert_not_called()
+    state = AgentWorkingState.model_validate(run.working_state)
+    assert state.remaining_step_budget == 4
+    assert state.completed_actions == ()
+
+
+@pytest.mark.parametrize(
+    "tool_calls",
+    [
+        [
+            ToolCall(
+                id="add-1",
+                name="add_book",
+                arguments={
+                    "book_id": str(NINETEEN_EIGHTY_FOUR_ID),
+                    "status": "want_to_read",
+                },
+            ),
+            ToolCall(
+                id="remove-1",
+                name="remove_book",
+                arguments={"book_id": str(DUNE_ID)},
+            ),
+        ],
+        [
+            ToolCall(
+                id="remove-1",
+                name="remove_book",
+                arguments={"book_id": str(DUNE_ID)},
+            ),
+            ToolCall(
+                id="remove-2",
+                name="remove_book",
+                arguments={"book_id": str(DUNE_ID)},
+            ),
+        ],
+    ],
+    ids=["mixed", "multiple-approval"],
+)
+def test_agent_rejects_ambiguous_approval_batch_before_all_handlers(
+    session: Session,
+    tool_calls: list[ToolCall],
+) -> None:
+    book_service = BookService(BookRepository(session))
+    book_service.add_book(USER_ID, DUNE_ID, ReadingStatus.READING)
+    add_handler = Mock(wraps=AddBookHandler(book_service, USER_ID))
+    remove_handler = Mock(wraps=RemoveBookHandler(book_service, USER_ID))
+    registry = ToolRegistry()
+    registry.register(ADD_BOOK_TOOL, add_handler)
+    registry.register(
+        REMOVE_BOOK_TOOL,
+        remove_handler,
+        approval_summary=RemoveBookApprovalSummary(book_service, USER_ID),
+    )
+    provider = FakeLLMProvider(
+        [
+            ModelResponse(text="", tool_calls=tool_calls),
+            ModelResponse(text="Отправлю опасное действие отдельно."),
+        ]
+    )
+    agent = AgentService(provider, registry, AgentRunRepository(session))
+
+    run = agent.run(USER_ID, "Измени мою библиотеку")
+
+    assert run.status is AgentRunStatus.COMPLETED
+    assert run.pending_action is None
+    assert len(run.steps[0].tool_results) == len(tool_calls)
+    assert {
+        result["error"]["code"] for result in run.steps[0].tool_results
+    } == {ToolErrorCode.AMBIGUOUS_APPROVAL_BATCH.value}
+    assert [entry.book_id for entry in book_service.get_library(USER_ID)] == [
+        DUNE_ID
+    ]
+    add_handler.assert_not_called()
+    remove_handler.assert_not_called()
+
+
+def test_agent_rejects_non_positive_approval_ttl(session: Session) -> None:
+    with pytest.raises(
+        ValueError,
+        match="approval_ttl_seconds must be at least 1",
+    ):
+        AgentService(
+            FakeLLMProvider([]),
+            ToolRegistry(),
+            AgentRunRepository(session),
+            approval_ttl_seconds=0,
         )
