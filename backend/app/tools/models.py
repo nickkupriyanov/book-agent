@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class ToolAccess(str, Enum):
     READ = "read"
     WRITE = "write"
+    DESTRUCTIVE = "destructive"
 
 
 class ToolErrorCode(str, Enum):

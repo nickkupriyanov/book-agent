@@ -26,6 +26,21 @@ class _RegisteredTool:
     handler: ToolHandler
 
 
+@dataclass(frozen=True)
+class PreparedToolCall:
+    tool_call_id: str
+    _tool: _RegisteredTool
+    arguments: BaseModel
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return self._tool.definition
+
+    @property
+    def canonical_arguments(self) -> dict[str, object]:
+        return self.arguments.model_dump(mode="json")
+
+
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, _RegisteredTool] = {}
@@ -42,10 +57,10 @@ class ToolRegistry:
     def definitions(self) -> tuple[ToolDefinition, ...]:
         return tuple(tool.definition for tool in self._tools.values())
 
-    def execute(
+    def prepare(
         self,
         call: ToolCall,
-    ) -> ToolResult:
+    ) -> PreparedToolCall | ToolResult:
         tool = self._tools.get(call.name)
         if tool is None:
             return ToolResult(
@@ -69,21 +84,28 @@ class ToolRegistry:
                 ),
             )
 
+        return PreparedToolCall(
+            tool_call_id=call.id,
+            _tool=tool,
+            arguments=arguments,
+        )
+
+    def execute_prepared(self, call: PreparedToolCall) -> ToolResult:
         try:
-            raw_result = tool.handler(arguments)
+            raw_result = call._tool.handler(call.arguments)
         except ToolExecutionError as exc:
             return ToolResult(
-                tool_call_id=call.id,
-                tool_name=call.name,
+                tool_call_id=call.tool_call_id,
+                tool_name=call.definition.name,
                 error=ToolError(code=exc.code, message=exc.message),
             )
 
         try:
-            result = tool.definition.result_model.model_validate(raw_result)
+            result = call.definition.result_model.model_validate(raw_result)
         except ValidationError:
             return ToolResult(
-                tool_call_id=call.id,
-                tool_name=call.name,
+                tool_call_id=call.tool_call_id,
+                tool_name=call.definition.name,
                 error=ToolError(
                     code=ToolErrorCode.INVALID_RESULT,
                     message="Tool returned an invalid result",
@@ -91,7 +113,16 @@ class ToolRegistry:
             )
 
         return ToolResult(
-            tool_call_id=call.id,
-            tool_name=call.name,
+            tool_call_id=call.tool_call_id,
+            tool_name=call.definition.name,
             output=result.model_dump(mode="json"),
         )
+
+    def execute(
+        self,
+        call: ToolCall,
+    ) -> ToolResult:
+        prepared = self.prepare(call)
+        if isinstance(prepared, ToolResult):
+            return prepared
+        return self.execute_prepared(prepared)
