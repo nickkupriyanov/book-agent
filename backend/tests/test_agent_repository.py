@@ -98,6 +98,7 @@ def test_agent_trace_is_restored_in_step_order(session: Session) -> None:
             )
         )
         assert restored.status is AgentRunStatus.COMPLETED
+        assert restored.version == 1
         assert restored.final_answer == "Дюна найдена"
         assert restored.stop_reason == "final_response"
         assert restored.error is None

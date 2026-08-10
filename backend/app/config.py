@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_timeout_seconds: float = 30.0
     agent_max_steps: int = Field(default=5, ge=1)
+    pending_action_ttl_seconds: int = Field(default=900, ge=1)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

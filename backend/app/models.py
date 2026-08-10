@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SqlEnum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -28,9 +29,17 @@ class ReadingStatus(str, Enum):
 
 class AgentRunStatus(str, Enum):
     RUNNING = "running"
+    WAITING_FOR_APPROVAL = "waiting_for_approval"
     COMPLETED = "completed"
     FAILED = "failed"
     STEP_LIMIT_EXCEEDED = "step_limit_exceeded"
+
+
+class PendingActionStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
 
 
 class Book(Base):
@@ -90,6 +99,11 @@ class AgentRun(Base):
         ),
         default=AgentRunStatus.RUNNING,
     )
+    version: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default=text("0"),
+    )
     user_message: Mapped[str] = mapped_column(Text)
     working_state: Mapped[dict[str, object]] = mapped_column(JSON)
     final_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -109,6 +123,48 @@ class AgentRun(Base):
         cascade="all, delete-orphan",
         order_by="AgentStep.step_number",
         lazy="selectin",
+    )
+
+
+class PendingAction(Base):
+    __tablename__ = "pending_actions"
+    __table_args__ = (
+        Index(
+            "uq_pending_actions_active_run",
+            "run_id",
+            unique=True,
+            sqlite_where=text("status = 'pending'"),
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        index=True,
+    )
+    user_id: Mapped[UUID] = mapped_column(index=True)
+    tool_call_id: Mapped[str] = mapped_column(String(255))
+    tool_name: Mapped[str] = mapped_column(String(255))
+    arguments: Mapped[dict[str, object]] = mapped_column(JSON)
+    summary: Mapped[str] = mapped_column(Text)
+    status: Mapped[PendingActionStatus] = mapped_column(
+        SqlEnum(
+            PendingActionStatus,
+            name="pending_action_status",
+            native_enum=False,
+            values_callable=lambda enum_type: [item.value for item in enum_type],
+        ),
+        default=PendingActionStatus.PENDING,
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True)
+    expected_run_version: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

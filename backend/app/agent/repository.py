@@ -1,10 +1,16 @@
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.agent.state import AgentWorkingState
-from app.models import AgentRun, AgentStep
+from app.models import (
+    AgentRun,
+    AgentStep,
+    PendingAction,
+    PendingActionStatus,
+)
 
 
 class AgentRunRepository:
@@ -53,6 +59,7 @@ class AgentRunRepository:
         return step
 
     def save_run(self, run: AgentRun) -> AgentRun:
+        run.version += 1
         self._session.commit()
         self._session.refresh(run)
         return run
@@ -63,5 +70,44 @@ class AgentRunRepository:
             .where(AgentRun.id == run_id)
             .options(selectinload(AgentRun.steps))
             .execution_options(populate_existing=True)
+        )
+        return self._session.scalar(statement)
+
+    def create_pending_action(
+        self,
+        *,
+        run_id: UUID,
+        user_id: UUID,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: dict[str, object],
+        summary: str,
+        idempotency_key: str,
+        expires_at: datetime,
+        expected_run_version: int,
+    ) -> PendingAction:
+        action = PendingAction(
+            run_id=run_id,
+            user_id=user_id,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            summary=summary,
+            idempotency_key=idempotency_key,
+            expires_at=expires_at,
+            expected_run_version=expected_run_version,
+        )
+        self._session.add(action)
+        self._session.commit()
+        self._session.refresh(action)
+        return action
+
+    def get_pending_action(self, action_id: UUID) -> PendingAction | None:
+        return self._session.get(PendingAction, action_id)
+
+    def get_pending_action_for_run(self, run_id: UUID) -> PendingAction | None:
+        statement = select(PendingAction).where(
+            PendingAction.run_id == run_id,
+            PendingAction.status == PendingActionStatus.PENDING,
         )
         return self._session.scalar(statement)
