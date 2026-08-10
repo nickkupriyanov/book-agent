@@ -60,3 +60,36 @@ def test_service_rejects_update_for_missing_entry(session: Session) -> None:
             DUNE_ID,
             ReadingStatus.FINISHED,
         )
+
+
+def test_service_removes_own_library_entry_without_removing_catalog_book(
+    session: Session,
+) -> None:
+    service = BookService(BookRepository(session))
+    user_id = get_settings().demo_user_id
+    service.add_book(user_id, DUNE_ID, ReadingStatus.READING)
+
+    removed = service.remove_book(user_id, DUNE_ID)
+
+    assert removed.book_id == DUNE_ID
+    assert removed.status is ReadingStatus.READING
+    assert service.get_library(user_id) == []
+    assert service.get_book(DUNE_ID).title == "Дюна"
+
+
+def test_service_rejects_removing_missing_or_another_users_entry(
+    session: Session,
+) -> None:
+    service = BookService(BookRepository(session))
+    user_id = get_settings().demo_user_id
+    other_user_id = uuid4()
+
+    with pytest.raises(LibraryEntryNotFoundError):
+        service.remove_book(user_id, DUNE_ID)
+
+    service.add_book(other_user_id, DUNE_ID, ReadingStatus.WANT_TO_READ)
+
+    with pytest.raises(LibraryEntryNotFoundError):
+        service.remove_book(user_id, DUNE_ID)
+
+    assert len(service.get_library(other_user_id)) == 1

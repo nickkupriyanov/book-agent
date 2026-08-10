@@ -123,3 +123,9 @@ class BookService:
 
         entry.status = status
         return self.repository.save_library_entry(entry)
+
+    def remove_book(self, user_id: UUID, book_id: UUID) -> LibraryEntry:
+        entry = self.repository.delete_library_entry(user_id, book_id)
+        if entry is None:
+            raise LibraryEntryNotFoundError(book_id)
+        return entry

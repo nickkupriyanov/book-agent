@@ -61,3 +61,16 @@ class BookRepository:
         self.session.commit()
         self.session.refresh(entry)
         return entry
+
+    def delete_library_entry(
+        self,
+        user_id: UUID,
+        book_id: UUID,
+    ) -> LibraryEntry | None:
+        entry = self.get_library_entry(user_id, book_id)
+        if entry is None:
+            return None
+
+        self.session.delete(entry)
+        self.session.commit()
+        return entry

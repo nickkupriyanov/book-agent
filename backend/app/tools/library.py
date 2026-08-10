@@ -149,6 +149,46 @@ class UpdateBookStatusHandler:
         )
 
 
+class RemoveBookArguments(BaseModel):
+    book_id: UUID
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RemoveBookResult(BaseModel):
+    book_id: UUID
+    title: str
+    author: str
+    status: ReadingStatus
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RemoveBookHandler:
+    def __init__(self, service: BookService, user_id: UUID) -> None:
+        self._service = service
+        self._user_id = user_id
+
+    def __call__(self, arguments: RemoveBookArguments) -> RemoveBookResult:
+        try:
+            entry = self._service.remove_book(
+                user_id=self._user_id,
+                book_id=arguments.book_id,
+            )
+        except LibraryEntryNotFoundError as exc:
+            raise ToolExecutionError(
+                code=ToolErrorCode.LIBRARY_ENTRY_NOT_FOUND,
+                message="Book is not in the library",
+            ) from exc
+
+        return RemoveBookResult(
+            book_id=entry.book_id,
+            title=entry.book.title,
+            author=entry.book.author,
+            status=entry.status,
+        )
+
+
 GET_USER_LIBRARY_TOOL = ToolDefinition(
     name="get_user_library",
     description=(
@@ -180,4 +220,13 @@ UPDATE_BOOK_STATUS_TOOL = ToolDefinition(
     access=ToolAccess.WRITE,
     arguments_model=UpdateBookStatusArguments,
     result_model=UpdateBookStatusResult,
+)
+
+
+REMOVE_BOOK_TOOL = ToolDefinition(
+    name="remove_book",
+    description="Remove a book from the current user's library.",
+    access=ToolAccess.DESTRUCTIVE,
+    arguments_model=RemoveBookArguments,
+    result_model=RemoveBookResult,
 )
