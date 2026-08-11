@@ -191,3 +191,129 @@ def test_remove_book_run_returns_safe_pending_action_and_survives_new_session(
 
     assert restored_response.status_code == 200
     assert restored_response.json()["pending_action"] == payload["pending_action"]
+
+
+def test_approve_executes_once_resumes_run_and_rejects_replacement_arguments(
+    client: TestClient,
+) -> None:
+    assert client.post(
+        "/api/library",
+        json={"book_id": DUNE_ID, "status": "reading"},
+    ).status_code == 201
+    provider = FakeLLMProvider(
+        [
+            ModelResponse(
+                text="",
+                tool_calls=[
+                    ToolCall(
+                        id="remove-1",
+                        name="remove_book",
+                        arguments={"book_id": DUNE_ID},
+                    )
+                ],
+            ),
+            ModelResponse(text="Удалил «Дюну» из вашей библиотеки."),
+        ]
+    )
+    app.dependency_overrides[get_llm_provider] = lambda: provider
+    waiting = client.post(
+        "/api/agent/runs",
+        json={"message": "Удали Дюну"},
+    ).json()
+    approve_url = (
+        f"/api/agent/runs/{waiting['id']}/actions/"
+        f"{waiting['pending_action']['id']}/approve"
+    )
+
+    replacement = client.post(
+        approve_url,
+        json={"arguments": {"book_id": "10000000-0000-0000-0000-000000000002"}},
+    )
+
+    assert replacement.status_code == 422
+    assert len(client.get("/api/library").json()) == 1
+
+    approved = client.post(approve_url, json={})
+
+    assert approved.status_code == 200
+    payload = approved.json()
+    assert payload["replayed"] is False
+    assert payload["action"]["status"] == "approved"
+    assert payload["action"]["result"]["output"] == {
+        "book_id": DUNE_ID,
+        "title": "Дюна",
+        "author": "Фрэнк Герберт",
+        "status": "reading",
+    }
+    assert payload["run"]["status"] == "completed"
+    assert payload["run"]["final_answer"] == (
+        "Удалил «Дюну» из вашей библиотеки."
+    )
+    assert payload["run"]["pending_action"] is None
+    assert payload["run"]["steps"][0]["tool_results"] == [
+        payload["action"]["result"]
+    ]
+    assert len(payload["run"]["steps"]) == 2
+    assert client.get("/api/library").json() == []
+    assert len(provider.calls) == 2
+
+    replay = client.post(approve_url, json={})
+
+    assert replay.status_code == 200
+    assert replay.json()["replayed"] is True
+    assert replay.json()["action"]["result"] == payload["action"]["result"]
+    assert replay.json()["run"]["status"] == "completed"
+    assert len(provider.calls) == 2
+
+
+def test_provider_failure_after_approve_keeps_effect_and_replay_is_safe(
+    client: TestClient,
+    session: Session,
+) -> None:
+    assert client.post(
+        "/api/library",
+        json={"book_id": DUNE_ID, "status": "reading"},
+    ).status_code == 201
+    provider = Mock()
+    provider.generate.side_effect = [
+        ModelResponse(
+            text="",
+            tool_calls=[
+                ToolCall(
+                    id="remove-1",
+                    name="remove_book",
+                    arguments={"book_id": DUNE_ID},
+                )
+            ],
+        ),
+        LLMTimeoutError("provider failed after commit"),
+    ]
+    app.dependency_overrides[get_llm_provider] = lambda: provider
+    waiting = client.post(
+        "/api/agent/runs",
+        json={"message": "Удали Дюну"},
+    ).json()
+    approve_url = (
+        f"/api/agent/runs/{waiting['id']}/actions/"
+        f"{waiting['pending_action']['id']}/approve"
+    )
+
+    failed = client.post(approve_url, json={})
+
+    assert failed.status_code == 504
+    assert client.get("/api/library").json() == []
+    session.expire_all()
+    run = session.scalar(select(AgentRun))
+    assert run is not None
+    assert run.status is AgentRunStatus.FAILED
+    assert run.pending_actions[0].status.value == "approved"
+    assert run.pending_actions[0].result is not None
+    assert provider.generate.call_count == 2
+
+    replay = client.post(approve_url, json={})
+
+    assert replay.status_code == 200
+    assert replay.json()["replayed"] is True
+    assert replay.json()["run"]["status"] == "failed"
+    assert client.get("/api/library").json() == []
+    assert provider.generate.call_count == 2

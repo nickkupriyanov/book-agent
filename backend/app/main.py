@@ -2,6 +2,11 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
 from app.api import router
+from app.agent.exceptions import (
+    ApprovalConflictError,
+    ApprovalExpiredError,
+    ApprovalNotFoundError,
+)
 from app.exceptions import (
     BookNotFoundError,
     DuplicateLibraryEntryError,
@@ -18,6 +23,39 @@ from app.schemas import HealthResponse
 
 app = FastAPI(title="Book Agent API", version="0.1.0")
 app.include_router(router)
+
+
+@app.exception_handler(ApprovalNotFoundError)
+def handle_approval_not_found(
+    request: Request,
+    exc: ApprovalNotFoundError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": str(exc)},
+    )
+
+
+@app.exception_handler(ApprovalConflictError)
+def handle_approval_conflict(
+    request: Request,
+    exc: ApprovalConflictError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={"detail": str(exc)},
+    )
+
+
+@app.exception_handler(ApprovalExpiredError)
+def handle_approval_expired(
+    request: Request,
+    exc: ApprovalExpiredError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_410_GONE,
+        content={"detail": str(exc)},
+    )
 
 
 @app.exception_handler(LLMNotConfiguredError)

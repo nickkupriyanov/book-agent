@@ -68,7 +68,7 @@
 - [x] 6.2. Доменное удаление и destructive tool.
 - [x] 6.3. Сохраняемое ожидающее действие.
 - [x] 6.4. Пауза agent loop до побочного эффекта.
-- [ ] 6.5. Безопасное подтверждение и единственное исполнение.
+- [x] 6.5. Безопасное подтверждение и единственное исполнение.
 - [ ] 6.6. Отклонение и возобновление agent loop.
 - [ ] 6.7. Конкуренция, срок действия и границы доступа.
 - [ ] 6.8. Сквозной acceptance-сценарий и закрытие этапа.
@@ -771,11 +771,121 @@ time-of-check/time-of-use уязвимость.
 контролируемое состояние ошибки или быть возобновлён позже, но повторный запрос
 не должен снова выполнять destructive handler.
 
+**Почему approval-путь использует `flush`, а не внутренний `commit` доменного
+repository?**
+
+`flush` отправляет DELETE в БД внутри текущей транзакции, поэтому handler уже
+может сформировать результат, но изменение ещё можно откатить. Общий commit
+позже одновременно фиксирует удаление, `approved`, result, version и trace.
+Внутренний commit разорвал бы эту атомарность и оставил crash window.
+
+**Зачем сохранять полный ToolResult в PendingAction, если он уже записан в
+AgentStep?**
+
+AgentStep нужен для истории модели, а PendingAction — для идемпотентного ответа
+на повторное решение. Сохранённый result позволяет повторному approve вернуть
+тот же исход без повторного handler и без реконструкции результата из уже
+изменившегося доменного состояния.
+
+**Почему гарантия этого микроэтапа ещё не равна защите от двух одновременных
+worker?**
+
+Последовательный повтор сначала видит `approved` и не исполняет handler. Два
+worker могут одновременно прочитать `pending` до первого commit. Для этой гонки
+нужен атомарный conditional update или row lock, который будет добавлен в 6.7.
+
 ### Совет на будущее
 
 Гарантия ровно одного эффекта реальна внутри одной БД. Для внешнего API без
 общей транзакции понадобятся idempotency key на стороне провайдера, outbox или
 другая явно спроектированная схема доставки.
+
+### Отчёт о завершении 6.5
+
+**Что сделано.** Добавлен строгий endpoint
+`POST /api/agent/runs/{run_id}/actions/{action_id}/approve` с обязательным
+пустым JSON-объектом. Pydantic-схема запрещает дополнительные поля, поэтому
+клиент не может прислать заменяющие arguments. Новый `ApprovalService` загружает
+run/action в области текущего пользователя, обрабатывает стабильный replay,
+проверяет `pending`, expiry, `WAITING_FOR_APPROVAL` и expected version. Затем он
+восстанавливает ToolCall исключительно из `PendingAction` и повторно пропускает
+сохранённые arguments через registry schema.
+
+Approval-путь `RemoveBookHandler` настроен на `flush` без раннего commit. После
+handler repository одной транзакцией фиксирует удаление LibraryEntry, статус
+`approved`, `resolved_at`, сохранённый ToolResult, фактический tool result в
+proposal-step, обновлённый working state, `RUNNING` и новую version. Миграция
+`20260811_06` добавляет nullable JSON `PendingAction.result`, необходимый для
+стабильного replay.
+
+Agent loop разделён на создание run и общий `_continue`. После успешного DB
+commit approve восстанавливает прежнюю историю без старого system snapshot,
+добавляет исходный assistant tool call и связанный ToolResult, а затем
+продолжает тот же run с оставшимся budget. LLM вызывается только после commit.
+Успешный финальный ответ переводит run в `completed`; если provider падает,
+удаление и `approved` остаются зафиксированными, а run получает отдельное
+состояние ошибки.
+
+API возвращает action с persisted result, resolved timestamp и статусом, run и
+флаг `replayed`. Последовательный повтор approve читает сохранённый ToolResult,
+не вызывает handler и не запускает provider повторно.
+
+Поток первого approve:
+empty request → scoped load/checks → reconstruct + revalidate saved call →
+handler с DELETE+flush → один commit эффекта/решения/trace → LLM continuation.
+Поток replay:
+scoped load → `approved` + saved result → стабильный response без handler/LLM.
+
+**Зачем.** Пользователь подтверждает конкретный ранее показанный объект, поэтому
+предмет согласия нельзя менять в approve-запросе. Общая транзакция закрывает
+окно между удалением и записью решения: база не может зафиксировать удалённую
+книгу вместе с всё ещё `pending` action. Persisted result делает сетевой retry
+безопасным даже после потери первого HTTP-ответа.
+
+**На что обратить внимание.** `flush` не означает durability: до commit DELETE
+виден текущей транзакции и может быть rollback. `approved` означает принятое и
+однократно обработанное решение; фактический ToolResult отдельно показывает
+успех или контролируемую доменную ошибку. Proposal находится в
+`AgentStep.response`, decision — в status/resolved_at action, execution — в
+persisted result и `AgentStep.tool_results`. Это разные события, даже когда
+proposal и result хранятся в разных полях одной строки step.
+
+Provider не участвует в DB-транзакции. Его ошибка после commit не должна
+«отменять» реальный эффект и не даёт права повторно выполнять handler. Текущая
+идемпотентность надёжна для последовательной повторной доставки; параллельный
+race двух worker осознанно остаётся границей 6.7.
+
+**Как проверено.** Service integration подтверждает действие по сохранённому
+book_id, проверяет `approved`, result, version `2`, tool result в proposal-step,
+completed action в working state и пустую библиотеку. Второй approve возвращает
+тот же ToolResult с `replayed=true`, а mock-handler остаётся вызван один раз.
+Failure injection заменяет commit ошибкой после DELETE+flush и доказывает через
+новую session, что rollback восстановил книгу, `pending`, version `1` и пустой
+tool_results. Негативные тесты отклоняют expiry, чужого пользователя, изменённую
+version и повреждённые сохранённые arguments до handler.
+
+API acceptance сначала отправляет body с новыми arguments и получает `422` без
+эффекта, затем подтверждает `{}`, удаляет книгу, продолжает тот же run до
+финального ответа и проверяет раздельный trace. Replay не увеличивает число
+вызовов provider. Отдельный тест инъецирует LLM timeout после approval commit:
+HTTP возвращает `504`, но книга остаётся удалённой, action — `approved` с result;
+повтор возвращает сохранённое состояние без нового provider call. Целевой
+прогон: `35 passed`; полный backend regression: `172 passed`.
+
+**Что мы выучили.** Идемпотентный endpoint должен сохранять результат, а не
+только ключ запроса. `flush` позволяет включить доменный эффект в более широкую
+unit of work. Согласие относится к сохранённым validated arguments, а не к
+«последней версии» JSON клиента. Внешний LLM-вызов выполняется после durable
+commit, потому что его нельзя атомарно объединить с локальной БД. Возобновление
+агента требует восстановить протокол assistant tool call → tool result и
+продолжить существующий budget, а не создать новый run.
+
+**Советы на будущее.** В 6.6 reject должен использовать ту же persisted history,
+но синтетический `user_rejected` ToolResult и ноль вызовов handler. Повторный
+reject не должен повторно запускать provider. Общую логику resume стоит
+переиспользовать, не объединяя approve/reject в неясный универсальный workflow.
+В 6.7 последовательную проверку status/version нужно усилить атомарным захватом
+для нескольких worker и явно сохранять `expired` при просроченном решении.
 
 ---
 

@@ -219,9 +219,79 @@ class AgentService:
             working_state,
         )
         messages = [Message(role=MessageRole.USER, content=user_message)]
-        previous_signature: tuple[tuple[str, str], ...] | None = None
+        return self._continue(
+            run=run,
+            working_state=working_state,
+            messages=messages,
+            start_step_number=1,
+            previous_signature=None,
+        )
 
-        for step_number in range(1, self._max_steps + 1):
+    def resume(
+        self,
+        run_id: UUID,
+        tool_result: ToolResult,
+    ) -> AgentRun:
+        run = self._repository.get_run(run_id)
+        if run is None:
+            raise RuntimeError("Saved agent run was not found")
+        if run.status is not AgentRunStatus.RUNNING:
+            raise ValueError("Agent run is not ready to resume")
+
+        proposal_step = next(
+            (
+                step
+                for step in reversed(run.steps)
+                if step.response is not None
+                and any(
+                    call.get("id") == tool_result.tool_call_id
+                    for call in step.response.get("tool_calls", [])
+                )
+            ),
+            None,
+        )
+        if proposal_step is None or proposal_step.response is None:
+            raise RuntimeError("Approval proposal step was not found")
+        response = ModelResponse.model_validate(proposal_step.response)
+        messages = [
+            Message.model_validate(message)
+            for message in proposal_step.messages[1:]
+        ]
+        messages.append(
+            Message(
+                role=MessageRole.ASSISTANT,
+                content=response.text,
+                tool_calls=response.tool_calls,
+            )
+        )
+        messages.append(_tool_result_message(tool_result))
+        return self._continue(
+            run=run,
+            working_state=AgentWorkingState.model_validate(run.working_state),
+            messages=messages,
+            start_step_number=proposal_step.step_number + 1,
+            previous_signature=_tool_call_signature(response.tool_calls),
+        )
+
+    def _continue(
+        self,
+        *,
+        run: AgentRun,
+        working_state: AgentWorkingState,
+        messages: list[Message],
+        start_step_number: int,
+        previous_signature: tuple[tuple[str, str], ...] | None,
+    ) -> AgentRun:
+        if working_state.remaining_step_budget == 0:
+            run.status = AgentRunStatus.STEP_LIMIT_EXCEEDED
+            run.stop_reason = "max_steps"
+            self._repository.save_run(run)
+            return self._restored_run(run)
+
+        for step_number in range(
+            start_step_number,
+            start_step_number + working_state.remaining_step_budget,
+        ):
             provider_messages = [_system_message(working_state), *messages]
             step_messages = [
                 message.model_dump(mode="json")

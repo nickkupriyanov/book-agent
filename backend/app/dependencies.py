@@ -5,6 +5,7 @@ from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from app.agent.repository import AgentRunRepository
+from app.agent.approval import ApprovalService
 from app.agent.service import AgentService
 from app.config import Settings, get_settings
 from app.db import get_db
@@ -82,7 +83,7 @@ def get_tool_registry(
     )
     registry.register(
         REMOVE_BOOK_TOOL,
-        RemoveBookHandler(service, settings.demo_user_id),
+        RemoveBookHandler(service, settings.demo_user_id, commit=False),
         approval_summary=RemoveBookApprovalSummary(
             service,
             settings.demo_user_id,
@@ -110,3 +111,10 @@ def get_agent_service(
         max_steps=settings.agent_max_steps,
         approval_ttl_seconds=settings.pending_action_ttl_seconds,
     )
+
+
+def get_approval_service(
+    registry: Annotated[ToolRegistry, Depends(get_tool_registry)],
+    repository: Annotated[AgentRunRepository, Depends(get_agent_repository)],
+) -> ApprovalService:
+    return ApprovalService(registry, repository)

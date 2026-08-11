@@ -165,16 +165,30 @@ class RemoveBookResult(BaseModel):
 
 
 class RemoveBookHandler:
-    def __init__(self, service: BookService, user_id: UUID) -> None:
+    def __init__(
+        self,
+        service: BookService,
+        user_id: UUID,
+        *,
+        commit: bool = True,
+    ) -> None:
         self._service = service
         self._user_id = user_id
+        self._commit = commit
 
     def __call__(self, arguments: RemoveBookArguments) -> RemoveBookResult:
         try:
-            entry = self._service.remove_book(
-                user_id=self._user_id,
-                book_id=arguments.book_id,
-            )
+            if self._commit:
+                entry = self._service.remove_book(
+                    user_id=self._user_id,
+                    book_id=arguments.book_id,
+                )
+            else:
+                entry = self._service.remove_book(
+                    user_id=self._user_id,
+                    book_id=arguments.book_id,
+                    commit=False,
+                )
         except LibraryEntryNotFoundError as exc:
             raise ToolExecutionError(
                 code=ToolErrorCode.LIBRARY_ENTRY_NOT_FOUND,

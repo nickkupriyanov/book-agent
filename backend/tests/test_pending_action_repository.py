@@ -64,6 +64,7 @@ def test_pending_action_is_restored_in_a_new_session(session: Session) -> None:
         assert restored.expected_run_version == 1
         assert restored.expires_at.replace(tzinfo=timezone.utc) == expires_at
         assert restored.resolved_at is None
+        assert restored.result is None
         restored_run = restored_repository.get_run(run.id)
         assert restored_run is not None
         assert restored_run.status is AgentRunStatus.WAITING_FOR_APPROVAL

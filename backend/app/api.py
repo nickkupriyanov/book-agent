@@ -4,11 +4,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.agent.repository import AgentRunRepository
+from app.agent.approval import ApprovalService
 from app.agent.service import AgentService
 from app.config import Settings, get_settings
 from app.dependencies import (
     get_agent_repository,
     get_agent_service,
+    get_approval_service,
     get_book_service,
     get_chat_service,
 )
@@ -18,6 +20,9 @@ from app.models import ReadingStatus
 from app.schemas import (
     AgentRunRequest,
     AgentRunResponse,
+    ApprovalActionResponse,
+    ApprovalDecisionRequest,
+    ApprovalResponse,
     BookResponse,
     ChatRequest,
     LibraryEntryCreate,
@@ -71,6 +76,38 @@ def get_agent_run(
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return AgentRunResponse.model_validate(run)
+
+
+@router.post(
+    "/agent/runs/{run_id}/actions/{action_id}/approve",
+    response_model=ApprovalResponse,
+)
+def approve_agent_action(
+    run_id: UUID,
+    action_id: UUID,
+    payload: ApprovalDecisionRequest,
+    approval_service: Annotated[
+        ApprovalService,
+        Depends(get_approval_service),
+    ],
+    agent_service: Annotated[AgentService, Depends(get_agent_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ApprovalResponse:
+    outcome = approval_service.approve(
+        run_id=run_id,
+        action_id=action_id,
+        user_id=settings.demo_user_id,
+    )
+    run = (
+        outcome.run
+        if outcome.replayed
+        else agent_service.resume(run_id, outcome.tool_result)
+    )
+    return ApprovalResponse(
+        action=ApprovalActionResponse.model_validate(outcome.action),
+        run=AgentRunResponse.model_validate(run),
+        replayed=outcome.replayed,
+    )
 
 
 @router.get("/books/search", response_model=list[BookResponse])

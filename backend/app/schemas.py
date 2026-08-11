@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent.state import AgentWorkingState
 from app.models import AgentRunStatus, PendingActionStatus, ReadingStatus
+from app.tools.models import ToolResult
 
 
 class HealthResponse(BaseModel):
@@ -17,6 +18,10 @@ class ChatRequest(BaseModel):
 
 class AgentRunRequest(BaseModel):
     message: str = Field(min_length=1)
+
+
+class ApprovalDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 class AgentStepResponse(BaseModel):
@@ -51,6 +56,21 @@ class AgentRunResponse(BaseModel):
     steps: list[AgentStepResponse]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ApprovalActionResponse(BaseModel):
+    id: UUID
+    status: PendingActionStatus
+    resolved_at: datetime
+    result: ToolResult
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ApprovalResponse(BaseModel):
+    action: ApprovalActionResponse
+    run: AgentRunResponse
+    replayed: bool
 
 
 class BookResponse(BaseModel):

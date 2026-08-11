@@ -13,7 +13,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 MIGRATIONS_DIR = BACKEND_DIR / "migrations"
 PREVIOUS_REVISION = "20260803_04"
-HEAD_REVISION = "20260810_05"
+HEAD_REVISION = "20260811_06"
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 BOOK_ID = UUID("10000000-0000-0000-0000-000000000001")
@@ -51,6 +51,10 @@ def test_clean_database_upgrades_to_pending_actions_head(
         }
         assert "uq_pending_actions_active_run" in {
             index["name"] for index in inspector.get_indexes("pending_actions")
+        }
+        assert "result" in {
+            column["name"]
+            for column in inspector.get_columns("pending_actions")
         }
         with engine.connect() as connection:
             assert connection.scalar(

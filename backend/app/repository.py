@@ -66,11 +66,16 @@ class BookRepository:
         self,
         user_id: UUID,
         book_id: UUID,
+        *,
+        commit: bool = True,
     ) -> LibraryEntry | None:
         entry = self.get_library_entry(user_id, book_id)
         if entry is None:
             return None
 
         self.session.delete(entry)
-        self.session.commit()
+        if commit:
+            self.session.commit()
+        else:
+            self.session.flush()
         return entry

@@ -176,9 +176,53 @@ class AgentRunRepository:
     def get_pending_action(self, action_id: UUID) -> PendingAction | None:
         return self._session.get(PendingAction, action_id)
 
+    def get_action_for_user(
+        self,
+        *,
+        run_id: UUID,
+        action_id: UUID,
+        user_id: UUID,
+    ) -> PendingAction | None:
+        statement = (
+            select(PendingAction)
+            .where(
+                PendingAction.id == action_id,
+                PendingAction.run_id == run_id,
+                PendingAction.user_id == user_id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        return self._session.scalar(statement)
+
     def get_pending_action_for_run(self, run_id: UUID) -> PendingAction | None:
         statement = select(PendingAction).where(
             PendingAction.run_id == run_id,
             PendingAction.status == PendingActionStatus.PENDING,
         )
         return self._session.scalar(statement)
+
+    def complete_approval(
+        self,
+        *,
+        run: AgentRun,
+        action: PendingAction,
+        proposal_step: AgentStep,
+        tool_result: dict[str, object],
+        working_state: dict[str, object],
+        resolved_at: datetime,
+    ) -> None:
+        action.status = PendingActionStatus.APPROVED
+        action.resolved_at = resolved_at
+        action.result = tool_result
+        proposal_step.tool_results = [tool_result]
+        run.status = AgentRunStatus.RUNNING
+        run.version += 1
+        run.working_state = working_state
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+
+    def rollback(self) -> None:
+        self._session.rollback()
