@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
@@ -50,9 +51,23 @@ class ApprovalService:
         self,
         registry: ToolRegistry,
         repository: AgentRunRepository,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._registry = registry
         self._repository = repository
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+
+    def _expire(self, *, run: AgentRun, action: PendingAction, now: datetime) -> None:
+        expired = self._repository.expire_pending_action(
+            run_id=run.id,
+            action_id=action.id,
+            user_id=run.user_id,
+            expected_run_version=action.expected_run_version,
+            now=now,
+        )
+        if expired:
+            raise ApprovalExpiredError("Approval action has expired")
+        raise ApprovalConflictError("Approval action changed before expiry")
 
     def approve(
         self,
@@ -80,10 +95,14 @@ class ApprovalService:
                 replayed=True,
             )
 
+        if action.status is PendingActionStatus.EXPIRED:
+            raise ApprovalExpiredError("Approval action has expired")
+
         if action.status is not PendingActionStatus.PENDING:
             raise ApprovalConflictError("Approval action is already resolved")
-        if datetime.now(timezone.utc) >= _as_utc(action.expires_at):
-            raise ApprovalExpiredError("Approval action has expired")
+        now = _as_utc(self._clock())
+        if now >= _as_utc(action.expires_at):
+            self._expire(run=run, action=action, now=now)
         if run.status is not AgentRunStatus.WAITING_FOR_APPROVAL:
             raise ApprovalConflictError("Agent run is not waiting for approval")
         if run.version != action.expected_run_version:
@@ -101,6 +120,34 @@ class ApprovalService:
             raise ApprovalConflictError("Saved tool no longer requires approval")
 
         proposal_step = _find_proposal_step(run, action.tool_call_id)
+        claimed = self._repository.claim_pending_action(
+            run_id=run.id,
+            action_id=action.id,
+            user_id=user_id,
+            expected_run_version=action.expected_run_version,
+            decision=PendingActionStatus.APPROVED,
+            now=now,
+        )
+        if not claimed:
+            restored_action = self._repository.get_action_for_user(
+                run_id=run.id,
+                action_id=action.id,
+                user_id=user_id,
+            )
+            restored_run = self._repository.get_run_for_user(run.id, user_id)
+            if (
+                restored_action is not None
+                and restored_run is not None
+                and restored_action.status is PendingActionStatus.APPROVED
+                and restored_action.result is not None
+            ):
+                return ApprovalOutcome(
+                    run=restored_run,
+                    action=restored_action,
+                    tool_result=ToolResult.model_validate(restored_action.result),
+                    replayed=True,
+                )
+            raise ApprovalConflictError("Approval action was resolved concurrently")
         try:
             tool_result = self._registry.execute_prepared(prepared)
             working_state = AgentWorkingState.model_validate(run.working_state)
@@ -124,7 +171,6 @@ class ApprovalService:
                 proposal_step=proposal_step,
                 tool_result=tool_result.model_dump(mode="json"),
                 working_state=working_state.model_dump(mode="json"),
-                resolved_at=datetime.now(timezone.utc),
             )
         except Exception:
             self._repository.rollback()
@@ -171,16 +217,52 @@ class ApprovalService:
                 replayed=True,
             )
 
+        if action.status is PendingActionStatus.EXPIRED:
+            raise ApprovalExpiredError("Approval action has expired")
+
         if action.status is not PendingActionStatus.PENDING:
             raise ApprovalConflictError("Approval action is already resolved")
-        if datetime.now(timezone.utc) >= _as_utc(action.expires_at):
-            raise ApprovalExpiredError("Approval action has expired")
+        now = _as_utc(self._clock())
+        if now >= _as_utc(action.expires_at):
+            self._expire(run=run, action=action, now=now)
         if run.status is not AgentRunStatus.WAITING_FOR_APPROVAL:
             raise ApprovalConflictError("Agent run is not waiting for approval")
         if run.version != action.expected_run_version:
             raise ApprovalConflictError("Agent run version has changed")
 
+        definition = self._registry.get_definition(action.tool_name)
+        if definition is None or not requires_approval(definition.access):
+            raise ApprovalConflictError("Saved tool no longer requires approval")
+
         proposal_step = _find_proposal_step(run, action.tool_call_id)
+        claimed = self._repository.claim_pending_action(
+            run_id=run.id,
+            action_id=action.id,
+            user_id=user_id,
+            expected_run_version=action.expected_run_version,
+            decision=PendingActionStatus.REJECTED,
+            now=now,
+        )
+        if not claimed:
+            restored_action = self._repository.get_action_for_user(
+                run_id=run.id,
+                action_id=action.id,
+                user_id=user_id,
+            )
+            restored_run = self._repository.get_run_for_user(run.id, user_id)
+            if (
+                restored_action is not None
+                and restored_run is not None
+                and restored_action.status is PendingActionStatus.REJECTED
+                and restored_action.result is not None
+            ):
+                return ApprovalOutcome(
+                    run=restored_run,
+                    action=restored_action,
+                    tool_result=ToolResult.model_validate(restored_action.result),
+                    replayed=True,
+                )
+            raise ApprovalConflictError("Approval action was resolved concurrently")
         tool_result = ToolResult(
             tool_call_id=action.tool_call_id,
             tool_name=action.tool_name,
@@ -194,7 +276,6 @@ class ApprovalService:
             action=action,
             proposal_step=proposal_step,
             tool_result=tool_result.model_dump(mode="json"),
-            resolved_at=datetime.now(timezone.utc),
         )
 
         restored_run = self._repository.get_run(run.id)

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.agent.state import AgentWorkingState
@@ -201,6 +201,106 @@ class AgentRunRepository:
         )
         return self._session.scalar(statement)
 
+    def claim_pending_action(
+        self,
+        *,
+        run_id: UUID,
+        action_id: UUID,
+        user_id: UUID,
+        expected_run_version: int,
+        decision: PendingActionStatus,
+        now: datetime,
+    ) -> bool:
+        action_result = self._session.execute(
+            update(PendingAction)
+            .where(
+                PendingAction.id == action_id,
+                PendingAction.run_id == run_id,
+                PendingAction.user_id == user_id,
+                PendingAction.status == PendingActionStatus.PENDING,
+                PendingAction.expected_run_version == expected_run_version,
+                PendingAction.expires_at > now,
+            )
+            .values(status=decision, resolved_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        if action_result.rowcount != 1:
+            self._session.rollback()
+            return False
+
+        run_result = self._session.execute(
+            update(AgentRun)
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.user_id == user_id,
+                AgentRun.status == AgentRunStatus.WAITING_FOR_APPROVAL,
+                AgentRun.version == expected_run_version,
+            )
+            .values(
+                status=AgentRunStatus.RUNNING,
+                version=AgentRun.version + 1,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if run_result.rowcount != 1:
+            self._session.rollback()
+            return False
+
+        self._session.expire_all()
+        return True
+
+    def expire_pending_action(
+        self,
+        *,
+        run_id: UUID,
+        action_id: UUID,
+        user_id: UUID,
+        expected_run_version: int,
+        now: datetime,
+    ) -> bool:
+        action_result = self._session.execute(
+            update(PendingAction)
+            .where(
+                PendingAction.id == action_id,
+                PendingAction.run_id == run_id,
+                PendingAction.user_id == user_id,
+                PendingAction.status == PendingActionStatus.PENDING,
+                PendingAction.expected_run_version == expected_run_version,
+                PendingAction.expires_at <= now,
+            )
+            .values(status=PendingActionStatus.EXPIRED, resolved_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        if action_result.rowcount != 1:
+            self._session.rollback()
+            return False
+
+        run_result = self._session.execute(
+            update(AgentRun)
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.user_id == user_id,
+                AgentRun.status == AgentRunStatus.WAITING_FOR_APPROVAL,
+                AgentRun.version == expected_run_version,
+            )
+            .values(
+                status=AgentRunStatus.FAILED,
+                version=AgentRun.version + 1,
+                stop_reason="approval_expired",
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if run_result.rowcount != 1:
+            self._session.rollback()
+            return False
+
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return True
+
     def complete_approval(
         self,
         *,
@@ -209,14 +309,9 @@ class AgentRunRepository:
         proposal_step: AgentStep,
         tool_result: dict[str, object],
         working_state: dict[str, object],
-        resolved_at: datetime,
     ) -> None:
-        action.status = PendingActionStatus.APPROVED
-        action.resolved_at = resolved_at
         action.result = tool_result
         proposal_step.tool_results = [tool_result]
-        run.status = AgentRunStatus.RUNNING
-        run.version += 1
         run.working_state = working_state
         try:
             self._session.commit()
@@ -231,14 +326,9 @@ class AgentRunRepository:
         action: PendingAction,
         proposal_step: AgentStep,
         tool_result: dict[str, object],
-        resolved_at: datetime,
     ) -> None:
-        action.status = PendingActionStatus.REJECTED
-        action.resolved_at = resolved_at
         action.result = tool_result
         proposal_step.tool_results = [tool_result]
-        run.status = AgentRunStatus.RUNNING
-        run.version += 1
         try:
             self._session.commit()
         except Exception:

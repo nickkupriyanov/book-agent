@@ -65,6 +65,10 @@ class ToolRegistry:
     def definitions(self) -> tuple[ToolDefinition, ...]:
         return tuple(tool.definition for tool in self._tools.values())
 
+    def get_definition(self, name: str) -> ToolDefinition | None:
+        tool = self._tools.get(name)
+        return None if tool is None else tool.definition
+
     def prepare(
         self,
         call: ToolCall,
