@@ -110,6 +110,38 @@ def approve_agent_action(
     )
 
 
+@router.post(
+    "/agent/runs/{run_id}/actions/{action_id}/reject",
+    response_model=ApprovalResponse,
+)
+def reject_agent_action(
+    run_id: UUID,
+    action_id: UUID,
+    payload: ApprovalDecisionRequest,
+    approval_service: Annotated[
+        ApprovalService,
+        Depends(get_approval_service),
+    ],
+    agent_service: Annotated[AgentService, Depends(get_agent_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ApprovalResponse:
+    outcome = approval_service.reject(
+        run_id=run_id,
+        action_id=action_id,
+        user_id=settings.demo_user_id,
+    )
+    run = (
+        outcome.run
+        if outcome.replayed
+        else agent_service.resume(run_id, outcome.tool_result)
+    )
+    return ApprovalResponse(
+        action=ApprovalActionResponse.model_validate(outcome.action),
+        run=AgentRunResponse.model_validate(run),
+        replayed=outcome.replayed,
+    )
+
+
 @router.get("/books/search", response_model=list[BookResponse])
 def search_books(
     service: Annotated[BookService, Depends(get_book_service)],

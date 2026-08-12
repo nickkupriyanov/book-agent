@@ -1,9 +1,11 @@
+import json
 from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import Settings, get_settings
 from app.db import get_db
 from app.dependencies import get_llm_provider
 from app.llm.exceptions import LLMTimeoutError
@@ -317,3 +319,133 @@ def test_provider_failure_after_approve_keeps_effect_and_replay_is_safe(
     assert replay.json()["run"]["status"] == "failed"
     assert client.get("/api/library").json() == []
     assert provider.generate.call_count == 2
+
+
+def test_reject_keeps_book_resumes_protocol_and_replay_is_stable(
+    client: TestClient,
+) -> None:
+    assert client.post(
+        "/api/library",
+        json={"book_id": DUNE_ID, "status": "reading"},
+    ).status_code == 201
+    provider = FakeLLMProvider(
+        [
+            ModelResponse(
+                text="",
+                tool_calls=[
+                    ToolCall(
+                        id="remove-1",
+                        name="remove_book",
+                        arguments={"book_id": DUNE_ID},
+                    )
+                ],
+            ),
+            ModelResponse(text="Хорошо, книга осталась в библиотеке."),
+        ]
+    )
+    app.dependency_overrides[get_llm_provider] = lambda: provider
+    waiting = client.post(
+        "/api/agent/runs",
+        json={"message": "Удали Дюну"},
+    ).json()
+    reject_url = (
+        f"/api/agent/runs/{waiting['id']}/actions/"
+        f"{waiting['pending_action']['id']}/reject"
+    )
+
+    replacement = client.post(reject_url, json={"reason": "delete another book"})
+
+    assert replacement.status_code == 422
+    assert len(provider.calls) == 1
+    assert len(client.get("/api/library").json()) == 1
+
+    rejected = client.post(reject_url, json={})
+
+    assert rejected.status_code == 200
+    payload = rejected.json()
+    assert payload["replayed"] is False
+    assert payload["action"]["status"] == "rejected"
+    assert payload["action"]["result"]["error"] == {
+        "code": "user_rejected",
+        "message": "User rejected the proposed action",
+    }
+    assert payload["run"]["status"] == "completed"
+    assert payload["run"]["final_answer"] == (
+        "Хорошо, книга осталась в библиотеке."
+    )
+    assert len(client.get("/api/library").json()) == 1
+    assert len(provider.calls) == 2
+    resumed_messages = provider.calls[1]
+    assert [message.role.value for message in resumed_messages[-2:]] == [
+        "assistant",
+        "tool",
+    ]
+    assert resumed_messages[-2].tool_calls[0].id == "remove-1"
+    assert resumed_messages[-1].tool_call_id == "remove-1"
+    assert json.loads(resumed_messages[-1].content)["error"]["code"] == (
+        "user_rejected"
+    )
+    assert payload["run"]["steps"][0]["tool_results"] == [
+        payload["action"]["result"]
+    ]
+    assert payload["run"]["working_state"]["completed_actions"] == []
+
+    replay = client.post(reject_url, json={})
+
+    assert replay.status_code == 200
+    assert replay.json()["replayed"] is True
+    assert replay.json()["action"]["result"] == payload["action"]["result"]
+    assert replay.json()["run"]["status"] == "completed"
+    assert len(provider.calls) == 2
+    assert len(client.get("/api/library").json()) == 1
+
+
+def test_reject_with_exhausted_budget_does_not_call_provider_again(
+    client: TestClient,
+) -> None:
+    assert client.post(
+        "/api/library",
+        json={"book_id": DUNE_ID, "status": "reading"},
+    ).status_code == 201
+    provider = FakeLLMProvider(
+        [
+            ModelResponse(
+                text="",
+                tool_calls=[
+                    ToolCall(
+                        id="remove-1",
+                        name="remove_book",
+                        arguments={"book_id": DUNE_ID},
+                    )
+                ],
+            )
+        ]
+    )
+    app.dependency_overrides[get_llm_provider] = lambda: provider
+    original_settings_override = app.dependency_overrides.get(get_settings)
+    app.dependency_overrides[get_settings] = lambda: Settings(agent_max_steps=1)
+    try:
+        waiting = client.post(
+            "/api/agent/runs",
+            json={"message": "Удали Дюну"},
+        ).json()
+        reject_url = (
+            f"/api/agent/runs/{waiting['id']}/actions/"
+            f"{waiting['pending_action']['id']}/reject"
+        )
+
+        rejected = client.post(reject_url, json={})
+    finally:
+        if original_settings_override is None:
+            app.dependency_overrides.pop(get_settings, None)
+        else:
+            app.dependency_overrides[get_settings] = original_settings_override
+
+    assert rejected.status_code == 200
+    payload = rejected.json()
+    assert payload["action"]["status"] == "rejected"
+    assert payload["run"]["status"] == "step_limit_exceeded"
+    assert payload["run"]["stop_reason"] == "max_steps"
+    assert payload["run"]["working_state"]["remaining_step_budget"] == 0
+    assert len(provider.calls) == 1
+    assert len(client.get("/api/library").json()) == 1

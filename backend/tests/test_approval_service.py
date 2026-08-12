@@ -216,3 +216,153 @@ def test_approve_hides_action_from_another_user(session: Session) -> None:
         )
 
     handler.assert_not_called()
+
+
+def test_reject_persists_result_without_executing_handler_and_replays(
+    session: Session,
+) -> None:
+    (
+        book_service,
+        remove_handler,
+        registry,
+        repository,
+        run,
+        action,
+    ) = create_waiting_action(session)
+    action.arguments = {"book_id": "corrupted-but-never-executed"}
+    session.commit()
+    service = ApprovalService(registry, repository)
+
+    with pytest.raises(ApprovalNotFoundError):
+        service.reject(
+            run_id=run.id,
+            action_id=action.id,
+            user_id=uuid4(),
+        )
+    remove_handler.assert_not_called()
+
+    first = service.reject(
+        run_id=run.id,
+        action_id=action.id,
+        user_id=USER_ID,
+    )
+    replay = service.reject(
+        run_id=run.id,
+        action_id=action.id,
+        user_id=USER_ID,
+    )
+
+    assert first.replayed is False
+    assert replay.replayed is True
+    assert replay.tool_result == first.tool_result
+    assert first.action.status is PendingActionStatus.REJECTED
+    assert first.action.resolved_at is not None
+    assert first.action.result == first.tool_result.model_dump(mode="json")
+    assert first.tool_result.error is not None
+    assert first.tool_result.error.code.value == "user_rejected"
+    assert first.run.status is AgentRunStatus.RUNNING
+    assert first.run.version == 2
+    assert first.run.steps[0].tool_results == [first.action.result]
+    state = AgentWorkingState.model_validate(first.run.working_state)
+    assert state.completed_actions == ()
+    assert len(book_service.get_library(USER_ID)) == 1
+    remove_handler.assert_not_called()
+
+
+def test_reject_rolls_back_decision_and_trace_when_commit_fails(
+    session: Session,
+) -> None:
+    (
+        book_service,
+        remove_handler,
+        registry,
+        repository,
+        run,
+        action,
+    ) = create_waiting_action(session)
+    original_commit = session.commit
+    session.commit = Mock(side_effect=RuntimeError("commit failed"))
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        ApprovalService(registry, repository).reject(
+            run_id=run.id,
+            action_id=action.id,
+            user_id=USER_ID,
+        )
+
+    session.commit = original_commit
+    with Session(session.get_bind()) as another_session:
+        restored_repository = AgentRunRepository(another_session)
+        restored_run = restored_repository.get_run(run.id)
+        restored_action = restored_repository.get_action_for_user(
+            run_id=run.id,
+            action_id=action.id,
+            user_id=USER_ID,
+        )
+
+        assert restored_run is not None
+        assert restored_action is not None
+        assert restored_run.status is AgentRunStatus.WAITING_FOR_APPROVAL
+        assert restored_run.version == 1
+        assert restored_run.steps[0].tool_results == []
+        assert restored_action.status is PendingActionStatus.PENDING
+        assert restored_action.result is None
+        assert restored_action.resolved_at is None
+    assert len(book_service.get_library(USER_ID)) == 1
+    remove_handler.assert_not_called()
+
+
+def test_resolved_decision_cannot_be_changed(session: Session) -> None:
+    _, handler, registry, repository, run, action = create_waiting_action(session)
+    service = ApprovalService(registry, repository)
+    rejected = service.reject(
+        run_id=run.id,
+        action_id=action.id,
+        user_id=USER_ID,
+    )
+
+    with pytest.raises(ApprovalConflictError, match="already resolved"):
+        service.approve(
+            run_id=run.id,
+            action_id=action.id,
+            user_id=USER_ID,
+        )
+
+    assert rejected.action.status is PendingActionStatus.REJECTED
+    handler.assert_not_called()
+
+    another_run = AgentService(
+        FakeLLMProvider(
+            [
+                ModelResponse(
+                    text="",
+                    tool_calls=[
+                        ToolCall(
+                            id="remove-2",
+                            name="remove_book",
+                            arguments={"book_id": str(DUNE_ID)},
+                        )
+                    ],
+                )
+            ]
+        ),
+        registry,
+        repository,
+    ).run(USER_ID, "Удали Дюну снова")
+    assert another_run.pending_action is not None
+    another_action_id = another_run.pending_action.id
+    approved = service.approve(
+        run_id=another_run.id,
+        action_id=another_action_id,
+        user_id=USER_ID,
+    )
+
+    with pytest.raises(ApprovalConflictError, match="already resolved"):
+        service.reject(
+            run_id=another_run.id,
+            action_id=another_action_id,
+            user_id=USER_ID,
+        )
+
+    assert approved.action.status is PendingActionStatus.APPROVED
+    handler.assert_called_once()

@@ -224,5 +224,26 @@ class AgentRunRepository:
             self._session.rollback()
             raise
 
+    def complete_rejection(
+        self,
+        *,
+        run: AgentRun,
+        action: PendingAction,
+        proposal_step: AgentStep,
+        tool_result: dict[str, object],
+        resolved_at: datetime,
+    ) -> None:
+        action.status = PendingActionStatus.REJECTED
+        action.resolved_at = resolved_at
+        action.result = tool_result
+        proposal_step.tool_results = [tool_result]
+        run.status = AgentRunStatus.RUNNING
+        run.version += 1
+        try:
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+
     def rollback(self) -> None:
         self._session.rollback()

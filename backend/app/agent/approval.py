@@ -16,7 +16,7 @@ from app.models import (
     PendingAction,
     PendingActionStatus,
 )
-from app.tools.models import ToolCall, ToolResult
+from app.tools.models import ToolCall, ToolError, ToolErrorCode, ToolResult
 from app.tools.policy import requires_approval
 from app.tools.registry import PreparedToolCall, ToolRegistry
 
@@ -138,6 +138,73 @@ class ApprovalService:
         )
         if restored_run is None or restored_action is None:
             raise RuntimeError("Approved action was not restored")
+        return ApprovalOutcome(
+            run=restored_run,
+            action=restored_action,
+            tool_result=tool_result,
+            replayed=False,
+        )
+
+    def reject(
+        self,
+        *,
+        run_id: UUID,
+        action_id: UUID,
+        user_id: UUID,
+    ) -> ApprovalOutcome:
+        action = self._repository.get_action_for_user(
+            run_id=run_id,
+            action_id=action_id,
+            user_id=user_id,
+        )
+        run = self._repository.get_run_for_user(run_id, user_id)
+        if action is None or run is None:
+            raise ApprovalNotFoundError("Approval action was not found")
+
+        if action.status is PendingActionStatus.REJECTED:
+            if action.result is None:
+                raise ApprovalConflictError("Rejected action has no saved result")
+            return ApprovalOutcome(
+                run=run,
+                action=action,
+                tool_result=ToolResult.model_validate(action.result),
+                replayed=True,
+            )
+
+        if action.status is not PendingActionStatus.PENDING:
+            raise ApprovalConflictError("Approval action is already resolved")
+        if datetime.now(timezone.utc) >= _as_utc(action.expires_at):
+            raise ApprovalExpiredError("Approval action has expired")
+        if run.status is not AgentRunStatus.WAITING_FOR_APPROVAL:
+            raise ApprovalConflictError("Agent run is not waiting for approval")
+        if run.version != action.expected_run_version:
+            raise ApprovalConflictError("Agent run version has changed")
+
+        proposal_step = _find_proposal_step(run, action.tool_call_id)
+        tool_result = ToolResult(
+            tool_call_id=action.tool_call_id,
+            tool_name=action.tool_name,
+            error=ToolError(
+                code=ToolErrorCode.USER_REJECTED,
+                message="User rejected the proposed action",
+            ),
+        )
+        self._repository.complete_rejection(
+            run=run,
+            action=action,
+            proposal_step=proposal_step,
+            tool_result=tool_result.model_dump(mode="json"),
+            resolved_at=datetime.now(timezone.utc),
+        )
+
+        restored_run = self._repository.get_run(run.id)
+        restored_action = self._repository.get_action_for_user(
+            run_id=run.id,
+            action_id=action.id,
+            user_id=user_id,
+        )
+        if restored_run is None or restored_action is None:
+            raise RuntimeError("Rejected action was not restored")
         return ApprovalOutcome(
             run=restored_run,
             action=restored_action,
