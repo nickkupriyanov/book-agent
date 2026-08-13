@@ -13,7 +13,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 MIGRATIONS_DIR = BACKEND_DIR / "migrations"
 PREVIOUS_REVISION = "20260803_04"
-HEAD_REVISION = "20260811_06"
+HEAD_REVISION = "20260812_07"
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 BOOK_ID = UUID("10000000-0000-0000-0000-000000000001")
@@ -34,6 +34,15 @@ def upgrade_database(
     get_settings.cache_clear()
 
 
+def check_database(monkeypatch: MonkeyPatch, database_url: str) -> None:
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    get_settings.cache_clear()
+    config = Config(str(ALEMBIC_INI))
+    config.set_main_option("script_location", str(MIGRATIONS_DIR))
+    command.check(config)
+    get_settings.cache_clear()
+
+
 def test_clean_database_upgrades_to_pending_actions_head(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -49,6 +58,11 @@ def test_clean_database_upgrades_to_pending_actions_head(
         assert "version" in {
             column["name"] for column in inspector.get_columns("agent_runs")
         }
+        assert next(
+            column["type"].length
+            for column in inspector.get_columns("agent_runs")
+            if column["name"] == "status"
+        ) == len("waiting_for_approval")
         assert "uq_pending_actions_active_run" in {
             index["name"] for index in inspector.get_indexes("pending_actions")
         }
@@ -60,6 +74,7 @@ def test_clean_database_upgrades_to_pending_actions_head(
             assert connection.scalar(
                 sa.text("SELECT version_num FROM alembic_version")
             ) == HEAD_REVISION
+        check_database(monkeypatch, database_url)
     finally:
         engine.dispose()
 
@@ -184,5 +199,54 @@ def test_upgrade_preserves_existing_books_library_and_agent_trace(
             assert connection.scalar(
                 sa.text("SELECT version_num FROM alembic_version")
             ) == HEAD_REVISION
+    finally:
+        upgraded_engine.dispose()
+
+
+def test_status_upgrade_preserves_waiting_run(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'waiting.db'}"
+    upgrade_database(monkeypatch, database_url, "20260811_06")
+    engine = sa.create_engine(database_url)
+    metadata = sa.MetaData()
+    agent_runs = sa.Table("agent_runs", metadata, autoload_with=engine)
+    now = datetime.now(timezone.utc)
+    waiting_run_id = UUID("20000000-0000-0000-0000-000000000002")
+    with engine.begin() as connection:
+        connection.execute(
+            agent_runs.insert().values(
+                id=waiting_run_id.hex,
+                user_id=USER_ID.hex,
+                status="waiting_for_approval",
+                version=1,
+                user_message="Удали Дюну",
+                working_state={
+                    "goal": "Удали Дюну",
+                    "completed_actions": [],
+                    "initial_step_budget": 5,
+                    "remaining_step_budget": 4,
+                },
+                final_answer=None,
+                stop_reason=None,
+                error=None,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    engine.dispose()
+
+    upgrade_database(monkeypatch, database_url, "head")
+
+    upgraded_engine = sa.create_engine(database_url)
+    try:
+        with upgraded_engine.connect() as connection:
+            assert connection.execute(
+                sa.text(
+                    "SELECT status, version FROM agent_runs WHERE id = :run_id"
+                ),
+                {"run_id": waiting_run_id.hex},
+            ).one() == ("waiting_for_approval", 1)
     finally:
         upgraded_engine.dispose()
