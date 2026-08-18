@@ -1,7 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createAgentRun } from './api/client'
-import type { AgentRun, AgentRunStatus, SafeTraceStep } from './api/types'
+import type {
+  AgentRun,
+  AgentRunStatus,
+  PendingAction,
+  SafeTraceStep,
+} from './api/types'
 import './App.css'
 
 type ConversationEntry =
@@ -17,6 +22,12 @@ const EXAMPLE_PROMPTS = [
   'Покажи книги, которые я сейчас читаю',
   'Найди «Дюну» и добавь в список на чтение',
 ]
+
+const APPROVAL_DATE_FORMAT = new Intl.DateTimeFormat('ru-RU', {
+  dateStyle: 'long',
+  timeStyle: 'short',
+})
+const MAX_TIMEOUT_MS = 2_147_483_647
 
 const RUN_PRESENTATIONS: Record<AgentRunStatus, RunPresentation> = {
   running: {
@@ -75,6 +86,65 @@ function RunTrace({ steps }: { steps: SafeTraceStep[] }) {
   )
 }
 
+function ApprovalCard({ action }: { action: PendingAction }) {
+  const titleId = useId()
+  const summaryId = useId()
+  const stateId = useId()
+  const [isExpired, setIsExpired] = useState(
+    () => action.expiresAt <= Date.now(),
+  )
+
+  useEffect(() => {
+    let timeoutId: number | undefined
+
+    function checkDeadline() {
+      const remainingMs = action.expiresAt - Date.now()
+      if (remainingMs <= 0) {
+        setIsExpired(true)
+        return
+      }
+
+      timeoutId = window.setTimeout(
+        checkDeadline,
+        Math.min(remainingMs, MAX_TIMEOUT_MS),
+      )
+    }
+
+    checkDeadline()
+    return () => {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+    }
+  }, [action.expiresAt])
+
+  return (
+    <section
+      className="approval-card"
+      aria-labelledby={titleId}
+      aria-describedby={`${summaryId} ${stateId}`}
+    >
+      <p className="approval-card__label">Действие ещё не выполнено</p>
+      <h3 id={titleId}>Требуется ваше решение</h3>
+      <p className="approval-card__summary" id={summaryId}>
+        {action.summary}
+      </p>
+      <p>До подтверждения библиотека не изменится.</p>
+      <p className="approval-card__expiry" id={stateId} aria-live="polite">
+        {isExpired ? (
+          'Срок, указанный сервером, истёк. Backend проверит это при решении.'
+        ) : (
+          <>
+            Подтвердить можно до{' '}
+            <time dateTime={new Date(action.expiresAt).toISOString()}>
+              {APPROVAL_DATE_FORMAT.format(action.expiresAt)}
+            </time>
+            .
+          </>
+        )}
+      </p>
+    </section>
+  )
+}
+
 function RunResult({ run }: { run: AgentRun }) {
   const presentation = RUN_PRESENTATIONS[run.status]
   const answer =
@@ -87,6 +157,9 @@ function RunResult({ run }: { run: AgentRun }) {
       <p className="message__role">Статус запуска</p>
       <h2>{presentation.title}</h2>
       <p>{answer}</p>
+      {run.status === 'waiting_for_approval' && run.pendingAction ? (
+        <ApprovalCard action={run.pendingAction} />
+      ) : null}
       <RunTrace steps={run.trace} />
     </article>
   )

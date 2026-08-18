@@ -1,14 +1,23 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { AgentRunResponse, AgentRunStatus } from './api/types'
 
+const RUN_ID = 'c79f4bf2-448d-4eab-aa02-cfefac2f1f51'
+const ACTION_ID = '43de88e6-8366-475a-9bd1-f33240e7059d'
+const PENDING_ACTION = {
+  id: ACTION_ID,
+  summary: 'Удалить «Дюну» из вашей библиотеки.',
+  status: 'pending' as const,
+  expires_at: '2035-05-20T10:30:00',
+}
+
 function makeRun(
   overrides: Partial<AgentRunResponse> = {},
 ): AgentRunResponse {
   return {
-    id: 'c79f4bf2-448d-4eab-aa02-cfefac2f1f51',
+    id: RUN_ID,
     status: 'completed',
     user_message: 'Найди Дюну',
     working_state: {
@@ -71,10 +80,70 @@ describe('Book Agent chat', () => {
       makeRun({
         status,
         final_answer: status === 'completed' ? 'Готово.' : null,
+        pending_action: status === 'waiting_for_approval' ? PENDING_ACTION : null,
       }),
     )
 
     expect(await screen.findByText(title)).toBeVisible()
+  })
+
+  it('shows a pending action without exposing identifiers or arguments', async () => {
+    await submitResponse({
+      ...makeRun({ status: 'waiting_for_approval' }),
+      pending_action: {
+        ...PENDING_ACTION,
+        arguments: { book_id: 'secret-book-id' },
+        idempotency_key: 'secret-idempotency-key',
+      },
+    })
+
+    const card = await screen.findByRole('region', {
+      name: 'Требуется ваше решение',
+    })
+    expect(within(card).getByText(PENDING_ACTION.summary)).toBeVisible()
+    expect(within(card).getByText('До подтверждения библиотека не изменится.'))
+      .toBeVisible()
+    expect(card).toHaveTextContent(/Подтвердить можно до/)
+    expect(card.querySelector('time')).toHaveAttribute(
+      'datetime',
+      '2035-05-20T10:30:00.000Z',
+    )
+    expect(within(card).queryByRole('button')).not.toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent(RUN_ID)
+    expect(document.body).not.toHaveTextContent(ACTION_ID)
+    expect(document.body).not.toHaveTextContent('secret-book-id')
+    expect(document.body).not.toHaveTextContent('secret-idempotency-key')
+  })
+
+  it('shows a controlled error when a waiting run has no pending action', async () => {
+    await submitResponse(
+      makeRun({ status: 'waiting_for_approval', pending_action: null }),
+    )
+
+    expect(
+      await screen.findByText(
+        'Сервер не прислал действие, ожидающее подтверждения.',
+      ),
+    ).toBeVisible()
+  })
+
+  it('marks an elapsed client deadline only as a hint', async () => {
+    await submitResponse(
+      makeRun({
+        status: 'waiting_for_approval',
+        pending_action: {
+          ...PENDING_ACTION,
+          expires_at: '2000-01-01T00:00:00Z',
+        },
+      }),
+    )
+
+    expect(
+      await screen.findByText(
+        'Срок, указанный сервером, истёк. Backend проверит это при решении.',
+      ),
+    ).toBeVisible()
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
   })
 
   it('renders only allowlisted trace fields', async () => {

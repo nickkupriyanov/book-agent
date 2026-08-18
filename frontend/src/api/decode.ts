@@ -2,6 +2,7 @@ import { AGENT_RUN_STATUSES } from './types'
 import type {
   AgentRun,
   AgentRunStatus,
+  PendingAction,
   SafeTraceStep,
 } from './types'
 
@@ -23,9 +24,20 @@ function isStatus(value: unknown): value is AgentRunStatus {
   )
 }
 
+function visibleText(value: string): string {
+  return value.replace(/[—–]/g, '-')
+}
+
+function parseServerDateTime(value: unknown): number {
+  if (typeof value !== 'string') return NaN
+
+  const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value)
+  return Date.parse(hasTimezone ? value : `${value}Z`)
+}
+
 function optionalString(value: unknown): string | null {
   if (value === null) return null
-  if (typeof value === 'string') return value.replace(/[—–]/g, '-')
+  if (typeof value === 'string') return visibleText(value)
   throw new ContractError()
 }
 
@@ -37,8 +49,36 @@ function decodeToolNames(response: unknown): string[] {
 
   return toolCalls.flatMap((call) => {
     if (!isRecord(call) || typeof call.name !== 'string') return []
-    return [call.name.slice(0, 80).replace(/[—–]/g, '-')]
+    return [visibleText(call.name.slice(0, 80))]
   })
+}
+
+function decodePendingAction(value: unknown): PendingAction {
+  if (!isRecord(value)) {
+    throw new ContractError(
+      'Сервер не прислал действие, ожидающее подтверждения.',
+    )
+  }
+
+  const expiresAt = parseServerDateTime(value.expires_at)
+
+  if (
+    typeof value.id !== 'string' ||
+    typeof value.summary !== 'string' ||
+    value.summary.trim().length === 0 ||
+    value.status !== 'pending' ||
+    !Number.isFinite(expiresAt)
+  ) {
+    throw new ContractError(
+      'Сервер вернул несогласованное действие для подтверждения.',
+    )
+  }
+
+  return {
+    id: value.id,
+    summary: visibleText(value.summary),
+    expiresAt,
+  }
 }
 
 function decodeTraceStep(value: unknown): SafeTraceStep {
@@ -88,6 +128,10 @@ export function decodeAgentRunResponse(payload: unknown): AgentRun {
     id: payload.id,
     status: payload.status,
     finalAnswer: optionalString(payload.final_answer),
+    pendingAction:
+      payload.status === 'waiting_for_approval'
+        ? decodePendingAction(payload.pending_action)
+        : null,
     trace: payload.steps.map(decodeTraceStep),
   }
 }

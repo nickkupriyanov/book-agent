@@ -56,9 +56,16 @@ export interface SafeTraceStep {
   resultCount: number
 }
 
+export interface PendingAction {
+  id: string
+  summary: string
+  expiresAt: number
+}
+
 export interface AgentRun {
   id: string
   status: AgentRunStatus
   finalAnswer: string | null
+  pendingAction: PendingAction | null
   trace: SafeTraceStep[]
 }
