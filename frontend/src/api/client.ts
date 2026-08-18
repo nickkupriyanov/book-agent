@@ -1,4 +1,5 @@
-import type { AgentRunResponse } from './types'
+import { decodeAgentRunResponse } from './decode'
+import type { AgentRun } from './types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -10,7 +11,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function createAgentRun(message: string): Promise<AgentRunResponse> {
+export async function createAgentRun(message: string): Promise<AgentRun> {
   let response: Response
 
   try {
@@ -33,5 +34,5 @@ export async function createAgentRun(message: string): Promise<AgentRunResponse>
     )
   }
 
-  return (await response.json()) as AgentRunResponse
+  return decodeAgentRunResponse(await response.json())
 }

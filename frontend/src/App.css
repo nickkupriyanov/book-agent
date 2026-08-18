@@ -146,6 +146,86 @@
   background: var(--danger-soft);
 }
 
+.run-result {
+  width: 100%;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 14px;
+  color: var(--ink);
+  background: var(--surface-strong);
+}
+
+.run-result[data-status="failed"],
+.run-result[data-status="step_limit_exceeded"] {
+  border-left-color: var(--danger);
+}
+
+.run-result h2,
+.run-result > p {
+  margin: 0;
+}
+
+.run-result h2 {
+  font-size: 21px;
+  line-height: 1.25;
+}
+
+.run-result > p:not(.message__role) {
+  margin-top: 8px;
+  line-height: 1.55;
+}
+
+.run-trace {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.run-trace summary {
+  width: fit-content;
+  color: var(--accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.run-trace summary:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 4px;
+}
+
+.run-trace ol {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.run-trace li {
+  padding: 13px 14px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+
+.trace-step__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.trace-step__heading span,
+.run-trace li p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.run-trace li p {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
 .message p {
   margin: 0;
   line-height: 1.5;

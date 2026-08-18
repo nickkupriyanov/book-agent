@@ -1,13 +1,16 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { createAgentRun } from './api/client'
-import type { AgentRunResponse } from './api/types'
+import type { AgentRun, AgentRunStatus, SafeTraceStep } from './api/types'
 import './App.css'
 
-interface ConversationEntry {
-  id: string
-  role: 'user' | 'assistant' | 'error'
-  text: string
+type ConversationEntry =
+  | { id: string; role: 'user' | 'error'; text: string }
+  | { id: string; role: 'run'; run: AgentRun }
+
+interface RunPresentation {
+  title: string
+  description: string
 }
 
 const EXAMPLE_PROMPTS = [
@@ -15,12 +18,78 @@ const EXAMPLE_PROMPTS = [
   'Найди «Дюну» и добавь в список на чтение',
 ]
 
-function completedAnswer(run: AgentRunResponse): string {
-  if (run.status === 'completed' && run.final_answer) {
-    return run.final_answer
-  }
+const RUN_PRESENTATIONS: Record<AgentRunStatus, RunPresentation> = {
+  running: {
+    title: 'Запуск ещё выполняется',
+    description: 'Сервер ещё не закончил обработку запуска.',
+  },
+  waiting_for_approval: {
+    title: 'Нужно подтверждение',
+    description:
+      'Агент остановился перед действием, которое требует подтверждения.',
+  },
+  completed: {
+    title: 'Запуск завершён',
+    description: 'Агент выполнил запрос и подготовил финальный ответ.',
+  },
+  failed: {
+    title: 'Запуск завершился с ошибкой',
+    description: 'Агент остановился безопасно. Попробуйте повторить запрос.',
+  },
+  step_limit_exceeded: {
+    title: 'Достигнут лимит шагов',
+    description: 'Агент исчерпал допустимое количество шагов и остановился.',
+  },
+}
 
-  return 'Запуск остановился без финального ответа.'
+function resultLabel(step: SafeTraceStep): string {
+  if (step.toolNames.length === 0) return 'Результат tool не требовался'
+  if (step.resultCount === 0) return 'Результат tool не получен'
+  if (step.resultCount === 1) return 'Получен 1 результат tool'
+  return `Получено результатов tool: ${step.resultCount}`
+}
+
+function RunTrace({ steps }: { steps: SafeTraceStep[] }) {
+  if (steps.length === 0) return null
+
+  return (
+    <details className="run-trace">
+      <summary>Как работал агент: шагов {steps.length}</summary>
+      <ol>
+        {steps.map((step) => (
+          <li key={step.stepNumber}>
+            <div className="trace-step__heading">
+              <strong>Шаг {step.stepNumber}</strong>
+              <span>{step.durationMs} мс</span>
+            </div>
+            <p>
+              {step.toolNames.length > 0
+                ? `Tool: ${step.toolNames.join(', ')}`
+                : 'Финальный ответ модели'}
+            </p>
+            <p>{resultLabel(step)}</p>
+          </li>
+        ))}
+      </ol>
+    </details>
+  )
+}
+
+function RunResult({ run }: { run: AgentRun }) {
+  const presentation = RUN_PRESENTATIONS[run.status]
+  const answer =
+    run.status === 'completed' && run.finalAnswer
+      ? run.finalAnswer
+      : presentation.description
+
+  return (
+    <article className="run-result" data-status={run.status}>
+      <p className="message__role">Статус запуска</p>
+      <h2>{presentation.title}</h2>
+      <p>{answer}</p>
+      <RunTrace steps={run.trace} />
+    </article>
+  )
 }
 
 function App() {
@@ -34,11 +103,7 @@ function App() {
 
     setConversation((current) => [
       ...current,
-      {
-        id: crypto.randomUUID(),
-        role: 'user',
-        text: trimmedMessage,
-      },
+      { id: crypto.randomUUID(), role: 'user', text: trimmedMessage },
     ])
     setMessage('')
     setIsSubmitting(true)
@@ -47,11 +112,7 @@ function App() {
       const run = await createAgentRun(trimmedMessage)
       setConversation((current) => [
         ...current,
-        {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          text: completedAnswer(run),
-        },
+        { id: crypto.randomUUID(), role: 'run', run },
       ])
     } catch (error) {
       const text =
@@ -106,21 +167,21 @@ function App() {
           </div>
         ) : (
           <div className="message-list" aria-live="polite">
-            {conversation.map((entry) => (
-              <article
-                className={`message message--${entry.role}`}
-                key={entry.id}
-              >
-                <p className="message__role">
-                  {entry.role === 'user'
-                    ? 'Вы'
-                    : entry.role === 'error'
-                      ? 'Ошибка'
-                      : 'Агент'}
-                </p>
-                <p>{entry.text}</p>
-              </article>
-            ))}
+            {conversation.map((entry) =>
+              entry.role === 'run' ? (
+                <RunResult key={entry.id} run={entry.run} />
+              ) : (
+                <article
+                  className={`message message--${entry.role}`}
+                  key={entry.id}
+                >
+                  <p className="message__role">
+                    {entry.role === 'user' ? 'Вы' : 'Ошибка'}
+                  </p>
+                  <p>{entry.text}</p>
+                </article>
+              ),
+            )}
             {isSubmitting ? (
               <article className="message message--loading" role="status">
                 <p className="message__role">Агент</p>
