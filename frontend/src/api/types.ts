@@ -69,3 +69,16 @@ export interface AgentRun {
   pendingAction: PendingAction | null
   trace: SafeTraceStep[]
 }
+
+export type ApprovalDecision = 'approve' | 'reject'
+
+export interface ApprovalResponse {
+  action: Record<string, unknown>
+  run: AgentRunResponse
+  replayed: boolean
+}
+
+export interface ApprovalResult {
+  run: AgentRun
+  replayed: boolean
+}

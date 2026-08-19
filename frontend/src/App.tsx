@@ -1,9 +1,10 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { createAgentRun } from './api/client'
+import { createAgentRun, resolveAgentAction } from './api/client'
 import type {
   AgentRun,
   AgentRunStatus,
+  ApprovalDecision,
   PendingAction,
   SafeTraceStep,
 } from './api/types'
@@ -16,6 +17,16 @@ type ConversationEntry =
 interface RunPresentation {
   title: string
   description: string
+}
+
+interface DecisionState {
+  entryId: string
+  decision: ApprovalDecision
+}
+
+interface DecisionError {
+  entryId: string
+  message: string
 }
 
 const EXAMPLE_PROMPTS = [
@@ -86,7 +97,21 @@ function RunTrace({ steps }: { steps: SafeTraceStep[] }) {
   )
 }
 
-function ApprovalCard({ action }: { action: PendingAction }) {
+interface ApprovalCardProps {
+  action: PendingAction
+  decision: ApprovalDecision | null
+  error: string | null
+  isDeciding: boolean
+  onDecision: (decision: ApprovalDecision) => void
+}
+
+function ApprovalCard({
+  action,
+  decision,
+  error,
+  isDeciding,
+  onDecision,
+}: ApprovalCardProps) {
   const titleId = useId()
   const summaryId = useId()
   const stateId = useId()
@@ -141,11 +166,45 @@ function ApprovalCard({ action }: { action: PendingAction }) {
           </>
         )}
       </p>
+      {error ? (
+        <p className="approval-card__error" role="alert">{error}</p>
+      ) : null}
+      <div className="approval-card__actions" aria-busy={isDeciding}>
+        <button
+          type="button"
+          disabled={isDeciding}
+          onClick={() => onDecision('approve')}
+        >
+          {decision === 'approve' ? 'Подтверждаем' : 'Подтвердить'}
+        </button>
+        <button
+          type="button"
+          className="approval-card__reject"
+          disabled={isDeciding}
+          onClick={() => onDecision('reject')}
+        >
+          {decision === 'reject' ? 'Отклоняем' : 'Отклонить'}
+        </button>
+      </div>
     </section>
   )
 }
 
-function RunResult({ run }: { run: AgentRun }) {
+interface RunResultProps {
+  run: AgentRun
+  decision: ApprovalDecision | null
+  decisionError: string | null
+  isDeciding: boolean
+  onDecision: (decision: ApprovalDecision) => void
+}
+
+function RunResult({
+  run,
+  decision,
+  decisionError,
+  isDeciding,
+  onDecision,
+}: RunResultProps) {
   const presentation = RUN_PRESENTATIONS[run.status]
   const answer =
     run.status === 'completed' && run.finalAnswer
@@ -158,7 +217,13 @@ function RunResult({ run }: { run: AgentRun }) {
       <h2>{presentation.title}</h2>
       <p>{answer}</p>
       {run.status === 'waiting_for_approval' && run.pendingAction ? (
-        <ApprovalCard action={run.pendingAction} />
+        <ApprovalCard
+          action={run.pendingAction}
+          decision={decision}
+          error={decisionError}
+          isDeciding={isDeciding}
+          onDecision={onDecision}
+        />
       ) : null}
       <RunTrace steps={run.trace} />
     </article>
@@ -169,6 +234,10 @@ function App() {
   const [message, setMessage] = useState('')
   const [conversation, setConversation] = useState<ConversationEntry[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [decisionInFlight, setDecisionInFlight] =
+    useState<DecisionState | null>(null)
+  const [decisionError, setDecisionError] = useState<DecisionError | null>(null)
+  const decisionLock = useRef(false)
 
   async function submitMessage(rawMessage: string) {
     const trimmedMessage = rawMessage.trim()
@@ -204,6 +273,44 @@ function App() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     void submitMessage(message)
+  }
+
+  async function handleDecision(
+    entryId: string,
+    run: AgentRun,
+    decision: ApprovalDecision,
+  ) {
+    if (decisionLock.current || !run.pendingAction) return
+
+    decisionLock.current = true
+    setDecisionInFlight({ entryId, decision })
+    setDecisionError(null)
+
+    try {
+      const result = await resolveAgentAction(
+        run.id,
+        run.pendingAction.id,
+        decision,
+      )
+      setConversation((current) =>
+        current.map((entry) =>
+          entry.id === entryId && entry.role === 'run'
+            ? { ...entry, run: result.run }
+            : entry,
+        ),
+      )
+    } catch (error) {
+      setDecisionError({
+        entryId,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Не удалось отправить решение. Попробуйте ещё раз.',
+      })
+    } finally {
+      decisionLock.current = false
+      setDecisionInFlight(null)
+    }
   }
 
   return (
@@ -242,7 +349,24 @@ function App() {
           <div className="message-list" aria-live="polite">
             {conversation.map((entry) =>
               entry.role === 'run' ? (
-                <RunResult key={entry.id} run={entry.run} />
+                <RunResult
+                  key={entry.id}
+                  run={entry.run}
+                  decision={
+                    decisionInFlight?.entryId === entry.id
+                      ? decisionInFlight.decision
+                      : null
+                  }
+                  decisionError={
+                    decisionError?.entryId === entry.id
+                      ? decisionError.message
+                      : null
+                  }
+                  isDeciding={decisionInFlight !== null}
+                  onDecision={(decision) =>
+                    void handleDecision(entry.id, entry.run, decision)
+                  }
+                />
               ) : (
                 <article
                   className={`message message--${entry.role}`}

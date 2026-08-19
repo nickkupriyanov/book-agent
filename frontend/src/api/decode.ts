@@ -2,6 +2,7 @@ import { AGENT_RUN_STATUSES } from './types'
 import type {
   AgentRun,
   AgentRunStatus,
+  ApprovalResult,
   PendingAction,
   SafeTraceStep,
 } from './types'
@@ -133,5 +134,18 @@ export function decodeAgentRunResponse(payload: unknown): AgentRun {
         ? decodePendingAction(payload.pending_action)
         : null,
     trace: payload.steps.map(decodeTraceStep),
+  }
+}
+
+export function decodeApprovalResponse(payload: unknown): ApprovalResult {
+  if (!isRecord(payload) || typeof payload.replayed !== 'boolean') {
+    throw new ContractError(
+      'Сервер вернул неподдерживаемый результат подтверждения.',
+    )
+  }
+
+  return {
+    run: decodeAgentRunResponse(payload.run),
+    replayed: payload.replayed,
   }
 }

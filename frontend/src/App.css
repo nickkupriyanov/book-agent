@@ -222,6 +222,45 @@
   font-size: 13px;
 }
 
+.approval-card__error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.approval-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.approval-card__actions button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent-strong);
+  border-radius: 12px;
+  color: var(--on-accent);
+  background: var(--accent-strong);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.approval-card__actions .approval-card__reject {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: transparent;
+}
+
+.approval-card__actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.approval-card__actions button:active {
+  transform: translateY(1px);
+}
+
 .run-trace {
   margin-top: 20px;
   padding-top: 16px;
@@ -410,5 +449,9 @@
 
   .message {
     max-width: 92%;
+  }
+
+  .approval-card__actions {
+    grid-template-columns: 1fr;
   }
 }

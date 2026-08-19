@@ -35,18 +35,35 @@ function makeRun(
   }
 }
 
-async function submitResponse(payload: unknown) {
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-    new Response(JSON.stringify(payload), {
-      status: 201,
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  )
+function jsonResponse(payload: unknown, status = 201): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function makeApprovalResponse(run: AgentRunResponse, replayed = false) {
+  return {
+    action: { status: 'approved' },
+    run,
+    replayed,
+  }
+}
+
+async function submitMessage() {
   const user = userEvent.setup()
   render(<App />)
 
   await user.type(screen.getByLabelText('Сообщение агенту'), 'Найди Дюну')
   await user.click(screen.getByRole('button', { name: 'Отправить' }))
+  return user
+}
+
+async function submitResponse(payload: unknown) {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    jsonResponse(payload),
+  )
+  await submitMessage()
 }
 
 afterEach(() => {
@@ -108,7 +125,8 @@ describe('Book Agent chat', () => {
       'datetime',
       '2035-05-20T10:30:00.000Z',
     )
-    expect(within(card).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(card).getByRole('button', { name: 'Подтвердить' })).toBeEnabled()
+    expect(within(card).getByRole('button', { name: 'Отклонить' })).toBeEnabled()
     expect(document.body).not.toHaveTextContent(RUN_ID)
     expect(document.body).not.toHaveTextContent(ACTION_ID)
     expect(document.body).not.toHaveTextContent('secret-book-id')
@@ -144,6 +162,142 @@ describe('Book Agent chat', () => {
       ),
     ).toBeVisible()
     expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('approves once with an empty body and replaces the waiting run', async () => {
+    const completed = makeRun({
+      status: 'completed',
+      final_answer: 'Книга удалена из библиотеки.',
+      pending_action: null,
+    })
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse(
+          makeRun({
+            status: 'waiting_for_approval',
+            final_answer: null,
+            pending_action: PENDING_ACTION,
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(makeApprovalResponse(completed, true), 200),
+      )
+    const user = await submitMessage()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Подтвердить' }),
+    )
+
+    expect(await screen.findByText('Книга удалена из библиотеки.')).toBeVisible()
+    expect(screen.queryByText(PENDING_ACTION.summary)).not.toBeInTheDocument()
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `/api/agent/runs/${RUN_ID}/actions/${ACTION_ID}/approve`,
+      expect.objectContaining({ method: 'POST', body: '{}' }),
+    )
+  })
+
+  it('rejects through its own endpoint and keeps the resumed answer', async () => {
+    const completed = makeRun({
+      status: 'completed',
+      final_answer: 'Книга осталась в библиотеке.',
+      pending_action: null,
+    })
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse(
+          makeRun({
+            status: 'waiting_for_approval',
+            final_answer: null,
+            pending_action: PENDING_ACTION,
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(makeApprovalResponse(completed), 200),
+      )
+    const user = await submitMessage()
+
+    await user.click(await screen.findByRole('button', { name: 'Отклонить' }))
+
+    expect(await screen.findByText('Книга осталась в библиотеке.')).toBeVisible()
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(fetchSpy.mock.calls[1]?.[0]).toBe(
+      `/api/agent/runs/${RUN_ID}/actions/${ACTION_ID}/reject`,
+    )
+  })
+
+  it('blocks both decisions and ignores a double click', async () => {
+    let finishApproval: (response: Response) => void = () => undefined
+    const approvalResponse = new Promise<Response>((resolve) => {
+      finishApproval = resolve
+    })
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse(
+          makeRun({
+            status: 'waiting_for_approval',
+            final_answer: null,
+            pending_action: PENDING_ACTION,
+          }),
+        ),
+      )
+      .mockReturnValueOnce(approvalResponse)
+    const user = await submitMessage()
+    const approve = await screen.findByRole('button', { name: 'Подтвердить' })
+
+    await user.dblClick(approve)
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('button', { name: 'Подтверждаем' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Отклонить' })).toBeDisabled()
+    expect(screen.getByText(PENDING_ACTION.summary)).toBeVisible()
+
+    finishApproval(
+      jsonResponse(
+        makeApprovalResponse(
+          makeRun({
+            status: 'completed',
+            final_answer: 'Решение принято.',
+            pending_action: null,
+          }),
+        ),
+        200,
+      ),
+    )
+    expect(await screen.findByText('Решение принято.')).toBeVisible()
+  })
+
+  it.each([
+    [409, 'Это решение уже принято или состояние запуска изменилось.'],
+    [410, 'Срок подтверждения истёк. Обновите состояние запуска.'],
+  ])('keeps the pending card after a controlled %s error', async (status, message) => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse(
+          makeRun({
+            status: 'waiting_for_approval',
+            final_answer: null,
+            pending_action: PENDING_ACTION,
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({ detail: 'internal detail' }, status))
+    const user = await submitMessage()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Подтвердить' }),
+    )
+
+    expect(await screen.findByText(message)).toBeVisible()
+    expect(screen.getByText(PENDING_ACTION.summary)).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Подтвердить' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Отклонить' })).toBeEnabled()
+    expect(screen.queryByText('internal detail')).not.toBeInTheDocument()
   })
 
   it('renders only allowlisted trace fields', async () => {
