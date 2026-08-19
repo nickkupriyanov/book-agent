@@ -1,6 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { createAgentRun, resolveAgentAction } from './api/client'
+import {
+  ApiError,
+  createAgentRun,
+  getAgentRun,
+  resolveAgentAction,
+} from './api/client'
 import type {
   AgentRun,
   AgentRunStatus,
@@ -8,6 +13,11 @@ import type {
   PendingAction,
   SafeTraceStep,
 } from './api/types'
+import {
+  forgetActiveRun,
+  readActiveRunId,
+  rememberActiveRun,
+} from './active-run-storage'
 import './App.css'
 
 type ConversationEntry =
@@ -231,17 +241,64 @@ function RunResult({
 }
 
 function App() {
+  const [restorationRunId] = useState(readActiveRunId)
   const [message, setMessage] = useState('')
   const [conversation, setConversation] = useState<ConversationEntry[]>([])
+  const [isRestoring, setIsRestoring] = useState(restorationRunId !== null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [decisionInFlight, setDecisionInFlight] =
     useState<DecisionState | null>(null)
   const [decisionError, setDecisionError] = useState<DecisionError | null>(null)
   const decisionLock = useRef(false)
 
+  useEffect(() => {
+    if (restorationRunId === null) return
+
+    const runId = restorationRunId
+    let isCancelled = false
+
+    async function restoreRun() {
+      try {
+        const run = await getAgentRun(runId)
+        if (isCancelled) return
+
+        rememberActiveRun(run)
+        setConversation([
+          { id: crypto.randomUUID(), role: 'user', text: run.userMessage },
+          { id: crypto.randomUUID(), role: 'run', run },
+        ])
+      } catch (error) {
+        if (isCancelled) return
+
+        if (error instanceof ApiError && error.status === 404) {
+          forgetActiveRun()
+          setConversation([])
+        } else {
+          setConversation([
+            {
+              id: crypto.randomUUID(),
+              role: 'error',
+              text:
+                error instanceof Error
+                  ? error.message
+                  : 'Не удалось восстановить запуск. Начните новую сессию.',
+            },
+          ])
+        }
+      } finally {
+        if (!isCancelled) setIsRestoring(false)
+      }
+    }
+
+    void restoreRun()
+    return () => {
+      isCancelled = true
+    }
+  }, [restorationRunId])
+
   async function submitMessage(rawMessage: string) {
     const trimmedMessage = rawMessage.trim()
-    if (!trimmedMessage || isSubmitting) return
+    if (!trimmedMessage || isSubmitting || isRestoring) return
 
     setConversation((current) => [
       ...current,
@@ -252,6 +309,7 @@ function App() {
 
     try {
       const run = await createAgentRun(trimmedMessage)
+      rememberActiveRun(run)
       setConversation((current) => [
         ...current,
         { id: crypto.randomUUID(), role: 'run', run },
@@ -292,6 +350,7 @@ function App() {
         run.pendingAction.id,
         decision,
       )
+      rememberActiveRun(result.run)
       setConversation((current) =>
         current.map((entry) =>
           entry.id === entryId && entry.role === 'run'
@@ -324,7 +383,13 @@ function App() {
       </header>
 
       <section className="conversation" aria-label="Диалог с агентом">
-        {conversation.length === 0 ? (
+        {isRestoring ? (
+          <article className="restoration-state" role="status">
+            <p className="empty-state__label">Возвращаемся к сессии</p>
+            <h2>Восстанавливаем запуск</h2>
+            <p>Проверяем его актуальное состояние на сервере.</p>
+          </article>
+        ) : conversation.length === 0 ? (
           <div className="empty-state">
             <p className="empty-state__label">Новая сессия</p>
             <h2>Что найдём в библиотеке?</h2>
@@ -337,7 +402,7 @@ function App() {
                 <button
                   key={prompt}
                   type="button"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isRestoring}
                   onClick={() => void submitMessage(prompt)}
                 >
                   {prompt}
@@ -402,11 +467,13 @@ function App() {
             onChange={(event) => setMessage(event.target.value)}
             placeholder="Например: найди «Дюну»"
             rows={2}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isRestoring}
           />
           <button
             type="submit"
-            disabled={isSubmitting || message.trim().length === 0}
+            disabled={
+              isSubmitting || isRestoring || message.trim().length === 0
+            }
           >
             {isSubmitting ? 'Отправляем' : 'Отправить'}
           </button>

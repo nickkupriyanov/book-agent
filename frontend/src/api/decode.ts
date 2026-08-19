@@ -128,6 +128,7 @@ export function decodeAgentRunResponse(payload: unknown): AgentRun {
   return {
     id: payload.id,
     status: payload.status,
+    userMessage: visibleText(payload.user_message),
     finalAnswer: optionalString(payload.final_answer),
     pendingAction:
       payload.status === 'waiting_for_approval'

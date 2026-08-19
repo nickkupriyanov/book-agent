@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { ACTIVE_RUN_STORAGE_KEY } from './active-run-storage'
 import type { AgentRunResponse, AgentRunStatus } from './api/types'
 
 const RUN_ID = 'c79f4bf2-448d-4eab-aa02-cfefac2f1f51'
@@ -68,6 +69,7 @@ async function submitResponse(payload: unknown) {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  window.localStorage.clear()
 })
 
 describe('Book Agent chat', () => {
@@ -395,5 +397,83 @@ describe('Book Agent chat', () => {
 
     expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled()
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('restores the same waiting run after a new render without creating one', async () => {
+    const waitingRun = makeRun({
+      status: 'waiting_for_approval',
+      final_answer: null,
+      pending_action: PENDING_ACTION,
+    })
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse(waitingRun))
+      .mockResolvedValueOnce(jsonResponse(waitingRun, 200))
+    const user = userEvent.setup()
+    const firstRender = render(<App />)
+
+    await user.type(screen.getByLabelText('Сообщение агенту'), 'Найди Дюну')
+    await user.click(screen.getByRole('button', { name: 'Отправить' }))
+    expect(await screen.findByText(PENDING_ACTION.summary)).toBeVisible()
+    expect(window.localStorage.getItem(ACTIVE_RUN_STORAGE_KEY)).toBe(
+      JSON.stringify({ version: 1, runId: RUN_ID }),
+    )
+
+    firstRender.unmount()
+    render(<App />)
+
+    expect(await screen.findByText(PENDING_ACTION.summary)).toBeVisible()
+    expect(screen.getByText('Найди Дюну')).toBeVisible()
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(fetchSpy).toHaveBeenLastCalledWith(`/api/agent/runs/${RUN_ID}`)
+    expect(fetchSpy.mock.calls.filter((call) => call[1]?.method === 'POST'))
+      .toHaveLength(1)
+  })
+
+  it.each([
+    ['corrupted JSON', '{broken'],
+    ['an unsupported version', JSON.stringify({ version: 2, runId: RUN_ID })],
+  ])('clears %s without calling the API', (_case, storedValue) => {
+    window.localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, storedValue)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    render(<App />)
+
+    expect(screen.getByText('Новая сессия')).toBeVisible()
+    expect(window.localStorage.getItem(ACTIVE_RUN_STORAGE_KEY)).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('clears a missing run and opens an empty session', async () => {
+    window.localStorage.setItem(
+      ACTIVE_RUN_STORAGE_KEY,
+      JSON.stringify({ version: 1, runId: RUN_ID }),
+    )
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: 'not found' }, 404),
+    )
+
+    render(<App />)
+
+    expect(screen.getByText('Восстанавливаем запуск')).toBeVisible()
+    expect(await screen.findByText('Новая сессия')).toBeVisible()
+    expect(window.localStorage.getItem(ACTIVE_RUN_STORAGE_KEY)).toBeNull()
+    expect(fetchSpy).toHaveBeenCalledOnce()
+  })
+
+  it('shows a restored terminal run but no longer marks it unfinished', async () => {
+    window.localStorage.setItem(
+      ACTIVE_RUN_STORAGE_KEY,
+      JSON.stringify({ version: 1, runId: RUN_ID }),
+    )
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse(makeRun(), 200),
+    )
+
+    render(<App />)
+
+    expect(await screen.findByText('Запуск завершён')).toBeVisible()
+    expect(window.localStorage.getItem(ACTIVE_RUN_STORAGE_KEY)).toBeNull()
+    expect(fetchSpy).toHaveBeenCalledWith(`/api/agent/runs/${RUN_ID}`)
   })
 })

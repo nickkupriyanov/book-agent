@@ -41,6 +41,28 @@ export async function createAgentRun(message: string): Promise<AgentRun> {
   return decodeAgentRunResponse(await response.json())
 }
 
+export async function getAgentRun(runId: string): Promise<AgentRun> {
+  let response: Response
+
+  try {
+    response = await fetch(`/api/agent/runs/${encodeURIComponent(runId)}`)
+  } catch {
+    throw new ApiError(
+      'Не удалось восстановить запуск. Проверьте, запущен ли backend.',
+      0,
+    )
+  }
+
+  if (!response.ok) {
+    throw new ApiError(
+      'Сервер не смог восстановить запуск. Начните новую сессию.',
+      response.status,
+    )
+  }
+
+  return decodeAgentRunResponse(await response.json())
+}
+
 function approvalError(status: number): ApiError {
   if (status === 409) {
     return new ApiError(

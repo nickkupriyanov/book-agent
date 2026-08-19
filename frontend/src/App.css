@@ -57,10 +57,27 @@
   overflow-y: auto;
 }
 
-.empty-state {
+.empty-state,
+.restoration-state {
   width: min(650px, 100%);
   margin: auto 0;
   padding: 40px 0;
+}
+
+.restoration-state h2,
+.restoration-state p {
+  margin: 0;
+}
+
+.restoration-state h2 {
+  color: var(--ink);
+  font-size: clamp(30px, 5vw, 48px);
+  letter-spacing: -0.04em;
+}
+
+.restoration-state > p:last-child {
+  margin-top: 14px;
+  color: var(--muted);
 }
 
 .empty-state__label {

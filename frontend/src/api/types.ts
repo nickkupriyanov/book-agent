@@ -65,6 +65,7 @@ export interface PendingAction {
 export interface AgentRun {
   id: string
   status: AgentRunStatus
+  userMessage: string
   finalAnswer: string | null
   pendingAction: PendingAction | null
   trace: SafeTraceStep[]
