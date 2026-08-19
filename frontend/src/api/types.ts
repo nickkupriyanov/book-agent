@@ -8,6 +8,14 @@ export const AGENT_RUN_STATUSES = [
 
 export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number]
 
+export const READING_STATUSES = [
+  'want_to_read',
+  'reading',
+  'finished',
+] as const
+
+export type ReadingStatus = (typeof READING_STATUSES)[number]
+
 export type PendingActionStatus =
   | 'pending'
   | 'approved'
@@ -82,4 +90,25 @@ export interface ApprovalResponse {
 export interface ApprovalResult {
   run: AgentRun
   replayed: boolean
+}
+
+export interface BookResponse {
+  id: string
+  title: string
+  author: string
+  tags: string[]
+}
+
+export interface LibraryEntryResponse {
+  book: BookResponse
+  status: ReadingStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface LibraryEntry {
+  bookId: string
+  title: string
+  author: string
+  status: ReadingStatus
 }

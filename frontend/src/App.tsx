@@ -1,16 +1,19 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   ApiError,
   createAgentRun,
   getAgentRun,
+  getLibrary,
   resolveAgentAction,
 } from './api/client'
 import type {
   AgentRun,
   AgentRunStatus,
   ApprovalDecision,
+  LibraryEntry,
   PendingAction,
+  ReadingStatus,
   SafeTraceStep,
 } from './api/types'
 import {
@@ -49,6 +52,17 @@ const APPROVAL_DATE_FORMAT = new Intl.DateTimeFormat('ru-RU', {
   timeStyle: 'short',
 })
 const MAX_TIMEOUT_MS = 2_147_483_647
+const LIBRARY_WRITE_TOOLS = new Set([
+  'add_book',
+  'update_book_status',
+  'remove_book',
+])
+
+const READING_STATUS_LABELS: Record<ReadingStatus, string> = {
+  want_to_read: 'Хочу прочитать',
+  reading: 'Читаю',
+  finished: 'Прочитано',
+}
 
 const RUN_PRESENTATIONS: Record<AgentRunStatus, RunPresentation> = {
   running: {
@@ -72,6 +86,67 @@ const RUN_PRESENTATIONS: Record<AgentRunStatus, RunPresentation> = {
     title: 'Достигнут лимит шагов',
     description: 'Агент исчерпал допустимое количество шагов и остановился.',
   },
+}
+
+function shouldRefreshLibrary(run: AgentRun): boolean {
+  if (run.status === 'running' || run.status === 'waiting_for_approval') {
+    return false
+  }
+
+  return run.trace.some((step) =>
+    step.toolNames.some((toolName) => LIBRARY_WRITE_TOOLS.has(toolName)),
+  )
+}
+
+interface LibraryPanelProps {
+  entries: LibraryEntry[]
+  error: string | null
+  isLoading: boolean
+}
+
+function LibraryPanel({ entries, error, isLoading }: LibraryPanelProps) {
+  const titleId = useId()
+
+  return (
+    <section
+      className="library-panel"
+      aria-labelledby={titleId}
+      aria-busy={isLoading}
+    >
+      <div className="library-panel__heading">
+        <div>
+          <p>Источник истины</p>
+          <h2 id={titleId}>Моя библиотека</h2>
+        </div>
+        {!isLoading && !error ? <span>Книг: {entries.length}</span> : null}
+      </div>
+      {isLoading ? (
+        <p className="library-panel__state" role="status">
+          Загружаем библиотеку
+        </p>
+      ) : error ? (
+        <p className="library-panel__state library-panel__error" role="alert">
+          {error}
+        </p>
+      ) : entries.length === 0 ? (
+        <p className="library-panel__state">В библиотеке пока нет книг.</p>
+      ) : (
+        <ul className="library-list">
+          {entries.map((entry) => (
+            <li key={entry.bookId}>
+              <div>
+                <h3>{entry.title}</h3>
+                <p>{entry.author}</p>
+              </div>
+              <span data-status={entry.status}>
+                {READING_STATUS_LABELS[entry.status]}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
 }
 
 function resultLabel(step: SafeTraceStep): string {
@@ -246,10 +321,40 @@ function App() {
   const [conversation, setConversation] = useState<ConversationEntry[]>([])
   const [isRestoring, setIsRestoring] = useState(restorationRunId !== null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [library, setLibrary] = useState<LibraryEntry[]>([])
+  const [isLibraryLoading, setIsLibraryLoading] = useState(true)
+  const [libraryError, setLibraryError] = useState<string | null>(null)
   const [decisionInFlight, setDecisionInFlight] =
     useState<DecisionState | null>(null)
   const [decisionError, setDecisionError] = useState<DecisionError | null>(null)
   const decisionLock = useRef(false)
+  const libraryRequestId = useRef(0)
+
+  const loadLibrary = useCallback(async () => {
+    const requestId = ++libraryRequestId.current
+    setIsLibraryLoading(true)
+    setLibraryError(null)
+
+    try {
+      const entries = await getLibrary()
+      if (requestId === libraryRequestId.current) setLibrary(entries)
+    } catch (error) {
+      if (requestId !== libraryRequestId.current) return
+      setLibraryError(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось загрузить библиотеку. Попробуйте ещё раз.',
+      )
+    } finally {
+      if (requestId === libraryRequestId.current) {
+        setIsLibraryLoading(false)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadLibrary()
+  }, [loadLibrary])
 
   useEffect(() => {
     if (restorationRunId === null) return
@@ -267,6 +372,7 @@ function App() {
           { id: crypto.randomUUID(), role: 'user', text: run.userMessage },
           { id: crypto.randomUUID(), role: 'run', run },
         ])
+        if (shouldRefreshLibrary(run)) void loadLibrary()
       } catch (error) {
         if (isCancelled) return
 
@@ -294,7 +400,7 @@ function App() {
     return () => {
       isCancelled = true
     }
-  }, [restorationRunId])
+  }, [loadLibrary, restorationRunId])
 
   async function submitMessage(rawMessage: string) {
     const trimmedMessage = rawMessage.trim()
@@ -314,6 +420,7 @@ function App() {
         ...current,
         { id: crypto.randomUUID(), role: 'run', run },
       ])
+      if (shouldRefreshLibrary(run)) void loadLibrary()
     } catch (error) {
       const text =
         error instanceof Error
@@ -358,6 +465,7 @@ function App() {
             : entry,
         ),
       )
+      if (shouldRefreshLibrary(result.run)) void loadLibrary()
     } catch (error) {
       setDecisionError({
         entryId,
@@ -381,6 +489,12 @@ function App() {
           <h1>Book Agent</h1>
         </div>
       </header>
+
+      <LibraryPanel
+        entries={library}
+        error={libraryError}
+        isLoading={isLibraryLoading}
+      />
 
       <section className="conversation" aria-label="Диалог с агентом">
         {isRestoring ? (

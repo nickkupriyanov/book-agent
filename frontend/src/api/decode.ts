@@ -1,9 +1,11 @@
-import { AGENT_RUN_STATUSES } from './types'
+import { AGENT_RUN_STATUSES, READING_STATUSES } from './types'
 import type {
   AgentRun,
   AgentRunStatus,
   ApprovalResult,
+  LibraryEntry,
   PendingAction,
+  ReadingStatus,
   SafeTraceStep,
 } from './types'
 
@@ -22,6 +24,13 @@ function isStatus(value: unknown): value is AgentRunStatus {
   return (
     typeof value === 'string' &&
     AGENT_RUN_STATUSES.some((status) => status === value)
+  )
+}
+
+function isReadingStatus(value: unknown): value is ReadingStatus {
+  return (
+    typeof value === 'string' &&
+    READING_STATUSES.some((status) => status === value)
   )
 }
 
@@ -149,4 +158,41 @@ export function decodeApprovalResponse(payload: unknown): ApprovalResult {
     run: decodeAgentRunResponse(payload.run),
     replayed: payload.replayed,
   }
+}
+
+export function decodeLibraryResponse(payload: unknown): LibraryEntry[] {
+  if (!Array.isArray(payload)) {
+    throw new ContractError('Сервер вернул неподдерживаемый формат библиотеки.')
+  }
+
+  return payload.map((value) => {
+    if (!isRecord(value) || !isRecord(value.book)) {
+      throw new ContractError(
+        'Сервер вернул неподдерживаемый формат библиотеки.',
+      )
+    }
+
+    const book = value.book
+    if (
+      typeof book.id !== 'string' ||
+      typeof book.title !== 'string' ||
+      typeof book.author !== 'string' ||
+      !Array.isArray(book.tags) ||
+      !book.tags.every((tag) => typeof tag === 'string') ||
+      !isReadingStatus(value.status) ||
+      typeof value.created_at !== 'string' ||
+      typeof value.updated_at !== 'string'
+    ) {
+      throw new ContractError(
+        'Сервер вернул неподдерживаемый формат библиотеки.',
+      )
+    }
+
+    return {
+      bookId: book.id,
+      title: visibleText(book.title),
+      author: visibleText(book.author),
+      status: value.status,
+    }
+  })
 }

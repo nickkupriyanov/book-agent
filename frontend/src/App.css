@@ -3,13 +3,111 @@
 }
 .app-shell {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   width: min(980px, 100%);
   min-height: 100dvh;
   margin: 0 auto;
   border-inline: 1px solid var(--line);
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+.library-panel {
+  padding: 18px clamp(20px, 7vw, 88px);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-strong);
+}
+
+.library-panel__heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.library-panel__heading p,
+.library-panel__heading h2 {
+  margin: 0;
+}
+
+.library-panel__heading p {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.library-panel__heading h2 {
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 19px;
+}
+
+.library-panel__heading > span,
+.library-panel__state {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.library-panel__state {
+  margin: 12px 0 0;
+}
+
+.library-panel__error {
+  color: var(--danger);
+}
+
+.library-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.library-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.library-list li > div {
+  min-width: 0;
+}
+
+.library-list h3,
+.library-list p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.library-list h3 {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.library-list p {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.library-list li > span {
+  flex: none;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .app-header {
@@ -446,6 +544,10 @@
 
   .conversation {
     padding-block: 24px;
+  }
+
+  .library-list {
+    grid-template-columns: 1fr;
   }
 
   .empty-state {

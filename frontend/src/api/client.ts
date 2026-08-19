@@ -1,8 +1,13 @@
-import { decodeAgentRunResponse, decodeApprovalResponse } from './decode'
+import {
+  decodeAgentRunResponse,
+  decodeApprovalResponse,
+  decodeLibraryResponse,
+} from './decode'
 import type {
   AgentRun,
   ApprovalDecision,
   ApprovalResult,
+  LibraryEntry,
 } from './types'
 
 export class ApiError extends Error {
@@ -61,6 +66,28 @@ export async function getAgentRun(runId: string): Promise<AgentRun> {
   }
 
   return decodeAgentRunResponse(await response.json())
+}
+
+export async function getLibrary(): Promise<LibraryEntry[]> {
+  let response: Response
+
+  try {
+    response = await fetch('/api/library')
+  } catch {
+    throw new ApiError(
+      'Не удалось загрузить библиотеку. Проверьте соединение с backend.',
+      0,
+    )
+  }
+
+  if (!response.ok) {
+    throw new ApiError(
+      'Сервер не смог загрузить библиотеку. Попробуйте ещё раз.',
+      response.status,
+    )
+  }
+
+  return decodeLibraryResponse(await response.json())
 }
 
 function approvalError(status: number): ApiError {
