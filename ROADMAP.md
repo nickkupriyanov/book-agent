@@ -565,7 +565,22 @@ Endpoint принимает сообщение и возвращает один 
 
 **Контрольная точка:** пользовательский MVP завершён.
 
-**Мои заметки:**
+**Мои заметки — этап завершён 7 сентября 2026:**
+
+- React показывает библиотеку, все состояния run, безопасный trace и
+  backend-generated approval summary без внутренних arguments.
+- Approve/reject отправляют только сохранённые идентификаторы, блокируют
+  повторное решение и заменяют waiting-run ответом backend.
+- Незавершённый run переживает refresh: localStorage хранит только versioned
+  run ID, а актуальное состояние перечитывается через GET.
+- Четыре MVP-сценария доступны из браузера; write/destructive-результат
+  подтверждается новым `GET /api/library`, а не текстом модели.
+- Keyboard acceptance прошёл для trace, approval и composer; mobile 390 × 844
+  не имеет горизонтального overflow; light/dark contrast и reduced motion
+  проверены.
+- Проверка: 37 frontend-тестов, production build, lint и 185 backend-тестов
+  проходят. Approve/reject acceptance переживает reload на временной SQLite;
+  рабочая и чистая базы находятся на `20260812_07 (head)`, schema check чистый.
 
 ---
 

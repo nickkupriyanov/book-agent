@@ -749,3 +749,134 @@ describe('Library panel and MVP scenarios', () => {
     expect(libraryCalls(fetchSpy)).toHaveLength(2)
   })
 })
+
+describe('Stage 7 acceptance and keyboard flow', () => {
+  it('restores a pending action, approves it once, and refreshes the library', async () => {
+    const waitingRun = makeRun({
+      status: 'waiting_for_approval',
+      final_answer: null,
+      pending_action: PENDING_ACTION,
+      steps: [makeToolStep(1, 'remove_book')],
+    })
+    const completedRun = makeRun({
+      final_answer: 'Книга удалена из библиотеки.',
+      steps: [makeToolStep(1, 'remove_book')],
+    })
+    const dune = makeLibraryEntry()
+    const fetchSpy = mockApi(
+      [
+        reply(waitingRun),
+        reply(waitingRun, 200),
+        reply(makeApprovalResponse(completedRun), 200),
+      ],
+      [reply([dune], 200), reply([dune], 200), reply([], 200)],
+    )
+    const user = userEvent.setup()
+    const firstRender = render(<App />)
+
+    await user.type(screen.getByLabelText('Сообщение агенту'), 'Удали Дюну')
+    await user.click(screen.getByRole('button', { name: 'Отправить' }))
+    expect(await screen.findByText(PENDING_ACTION.summary)).toBeVisible()
+
+    firstRender.unmount()
+    render(<App />)
+    await user.click(
+      await screen.findByRole('button', { name: 'Подтвердить' }),
+    )
+
+    expect(await screen.findByText('Книга удалена из библиотеки.')).toBeVisible()
+    expect(await screen.findByText('В библиотеке пока нет книг.')).toBeVisible()
+    const approvalCalls = agentCalls(fetchSpy).filter(([input]) =>
+      requestUrl(input).endsWith('/approve'),
+    )
+    expect(approvalCalls).toHaveLength(1)
+    expect(libraryCalls(fetchSpy)).toHaveLength(3)
+  })
+
+  it('restores a pending action, rejects it once, and keeps the library', async () => {
+    const waitingRun = makeRun({
+      status: 'waiting_for_approval',
+      final_answer: null,
+      pending_action: PENDING_ACTION,
+      steps: [makeToolStep(1, 'remove_book')],
+    })
+    const completedRun = makeRun({
+      final_answer: 'Книга осталась в библиотеке.',
+      steps: [makeToolStep(1, 'remove_book')],
+    })
+    const dune = makeLibraryEntry()
+    const fetchSpy = mockApi(
+      [
+        reply(waitingRun),
+        reply(waitingRun, 200),
+        reply(makeApprovalResponse(completedRun), 200),
+      ],
+      [reply([dune], 200), reply([dune], 200), reply([dune], 200)],
+    )
+    const user = userEvent.setup()
+    const firstRender = render(<App />)
+
+    await user.type(screen.getByLabelText('Сообщение агенту'), 'Удали Дюну')
+    await user.click(screen.getByRole('button', { name: 'Отправить' }))
+    expect(await screen.findByText(PENDING_ACTION.summary)).toBeVisible()
+
+    firstRender.unmount()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Отклонить' }))
+
+    expect(await screen.findByText('Книга осталась в библиотеке.')).toBeVisible()
+    const panel = screen.getByRole('region', { name: 'Моя библиотека' })
+    expect(await within(panel).findByRole('heading', { name: 'Дюна' }))
+      .toBeVisible()
+    const rejectionCalls = agentCalls(fetchSpy).filter(([input]) =>
+      requestUrl(input).endsWith('/reject'),
+    )
+    expect(rejectionCalls).toHaveLength(1)
+    expect(libraryCalls(fetchSpy)).toHaveLength(3)
+  })
+
+  it('moves keyboard focus through both approval choices and the composer', async () => {
+    const waitingRun = makeRun({
+      status: 'waiting_for_approval',
+      final_answer: null,
+      pending_action: PENDING_ACTION,
+    })
+    window.localStorage.setItem(
+      ACTIVE_RUN_STORAGE_KEY,
+      JSON.stringify({ version: 1, runId: RUN_ID }),
+    )
+    mockApi([reply(waitingRun, 200)])
+    const user = userEvent.setup()
+
+    render(<App />)
+    await screen.findByText(PENDING_ACTION.summary)
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Подтвердить' })).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Отклонить' })).toHaveFocus()
+    await user.tab()
+    expect(screen.getByLabelText('Сообщение агенту')).toHaveFocus()
+  })
+
+  it('focuses the native trace summary before the composer', async () => {
+    const completedRun = makeRun({
+      steps: [makeToolStep(1, 'get_user_library')],
+    })
+    window.localStorage.setItem(
+      ACTIVE_RUN_STORAGE_KEY,
+      JSON.stringify({ version: 1, runId: RUN_ID }),
+    )
+    mockApi([reply(completedRun, 200)])
+    const user = userEvent.setup()
+
+    render(<App />)
+    const summary = await screen.findByText('Как работал агент: шагов 1')
+
+    await user.tab()
+    expect(summary).toHaveFocus()
+    expect(summary.tagName).toBe('SUMMARY')
+    await user.tab()
+    expect(screen.getByLabelText('Сообщение агенту')).toHaveFocus()
+  })
+})

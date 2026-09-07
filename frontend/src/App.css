@@ -220,7 +220,6 @@
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
 }
 
 .prompt-list button:hover {
@@ -390,7 +389,7 @@
 }
 
 .run-trace summary:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline: 3px solid var(--accent);
   outline-offset: 4px;
 }
 

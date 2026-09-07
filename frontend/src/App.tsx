@@ -112,6 +112,7 @@ function LibraryPanel({ entries, error, isLoading }: LibraryPanelProps) {
       className="library-panel"
       aria-labelledby={titleId}
       aria-busy={isLoading}
+      aria-live="polite"
     >
       <div className="library-panel__heading">
         <div>
