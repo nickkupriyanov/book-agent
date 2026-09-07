@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from app.catalog.local import LocalBookCatalog
+from app.catalog.models import CatalogBook, CatalogSearchResult
+from app.catalog.provider import BookCatalog
 from app.exceptions import (
     BookNotFoundError,
     DuplicateLibraryEntryError,
@@ -18,11 +21,19 @@ class RecommendationCandidate:
 
 
 class BookService:
-    def __init__(self, repository: BookRepository) -> None:
+    def __init__(
+        self,
+        repository: BookRepository,
+        catalog: BookCatalog | None = None,
+    ) -> None:
         self.repository = repository
+        self.catalog = catalog or LocalBookCatalog(repository)
 
-    def search_books(self, query: str, limit: int = 20) -> list[Book]:
-        return self.repository.search_books(query=query, limit=limit)
+    def search_catalog(self, query: str, limit: int = 20) -> CatalogSearchResult:
+        return self.catalog.search_books(query=query, limit=limit)
+
+    def search_books(self, query: str, limit: int = 20) -> list[CatalogBook]:
+        return list(self.search_catalog(query=query, limit=limit).books)
 
     def get_book(self, book_id: UUID) -> Book:
         book = self.repository.get_book(book_id)

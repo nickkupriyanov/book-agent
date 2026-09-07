@@ -4,6 +4,7 @@ from fastapi import Depends
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
+from app.catalog.local import LocalBookCatalog
 from app.agent.repository import AgentRunRepository
 from app.agent.approval import ApprovalService
 from app.agent.service import AgentService
@@ -35,7 +36,8 @@ from app.tools.registry import ToolRegistry
 
 
 def get_book_service(db: Annotated[Session, Depends(get_db)]) -> BookService:
-    return BookService(BookRepository(db))
+    repository = BookRepository(db)
+    return BookService(repository, LocalBookCatalog(repository))
 
 
 def get_llm_provider(
