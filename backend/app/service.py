@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from app.catalog.local import LocalBookCatalog
-from app.catalog.models import CatalogBook, CatalogSearchResult
+from app.catalog.models import CatalogBook, CatalogSearchResult, CatalogSource
 from app.catalog.provider import BookCatalog
 from app.exceptions import (
     BookNotFoundError,
@@ -30,7 +30,15 @@ class BookService:
         self.catalog = catalog or LocalBookCatalog(repository)
 
     def search_catalog(self, query: str, limit: int = 20) -> CatalogSearchResult:
-        return self.catalog.search_books(query=query, limit=limit)
+        result = self.catalog.search_books(query=query, limit=limit)
+        external_books = tuple(
+            book
+            for book in result.books
+            if book.catalog_source != CatalogSource.LOCAL
+        )
+        if external_books:
+            self.repository.upsert_catalog_books(external_books)
+        return result
 
     def search_books(self, query: str, limit: int = 20) -> list[CatalogBook]:
         return list(self.search_catalog(query=query, limit=limit).books)

@@ -44,6 +44,13 @@ class PendingActionStatus(str, Enum):
 
 class Book(Base):
     __tablename__ = "books"
+    __table_args__ = (
+        UniqueConstraint(
+            "catalog_source",
+            "external_id",
+            name="uq_books_catalog_external_id",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(255), index=True)
@@ -52,6 +59,18 @@ class Book(Base):
         JSON,
         default=list,
         server_default=text("'[]'"),
+    )
+    catalog_source: Mapped[str] = mapped_column(
+        String(32),
+        default="local",
+        server_default=text("'local'"),
+    )
+    external_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    isbn: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    cover_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    catalog_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
 

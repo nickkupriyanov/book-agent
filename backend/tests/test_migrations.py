@@ -13,7 +13,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 MIGRATIONS_DIR = BACKEND_DIR / "migrations"
 PREVIOUS_REVISION = "20260803_04"
-HEAD_REVISION = "20260812_07"
+HEAD_REVISION = "20260908_08"
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 BOOK_ID = UUID("10000000-0000-0000-0000-000000000001")
@@ -69,6 +69,17 @@ def test_clean_database_upgrades_to_pending_actions_head(
         assert "result" in {
             column["name"]
             for column in inspector.get_columns("pending_actions")
+        }
+        assert {
+            "catalog_source",
+            "external_id",
+            "isbn",
+            "cover_url",
+            "catalog_updated_at",
+        } <= {column["name"] for column in inspector.get_columns("books")}
+        assert "uq_books_catalog_external_id" in {
+            constraint["name"]
+            for constraint in inspector.get_unique_constraints("books")
         }
         with engine.connect() as connection:
             assert connection.scalar(
@@ -185,6 +196,9 @@ def test_upgrade_preserves_existing_books_library_and_agent_trace(
     try:
         with upgraded_engine.connect() as connection:
             assert connection.scalar(sa.text("SELECT COUNT(*) FROM books")) == 1
+            assert connection.execute(
+                sa.text("SELECT catalog_source, external_id FROM books")
+            ).one() == ("local", None)
             assert connection.scalar(
                 sa.text("SELECT COUNT(*) FROM library_entries")
             ) == 1

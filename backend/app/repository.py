@@ -1,9 +1,16 @@
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import Select, select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.models import Book, LibraryEntry, ReadingStatus
+
+if TYPE_CHECKING:
+    from app.catalog.models import CatalogBook
 
 
 class BookRepository:
@@ -20,6 +27,65 @@ class BookRepository:
 
     def get_book(self, book_id: UUID) -> Book | None:
         return self.session.get(Book, book_id)
+
+    def upsert_catalog_books(
+        self,
+        books: tuple["CatalogBook", ...],
+    ) -> list[Book]:
+        if not books:
+            return []
+
+        updated_at = datetime.now(timezone.utc)
+        rows = [
+            {
+                "id": book.id,
+                "title": book.title,
+                "author": book.author,
+                "tags": list(book.tags),
+                "catalog_source": book.catalog_source.value,
+                "external_id": book.external_id,
+                "isbn": book.isbn,
+                "cover_url": book.cover_url,
+                "catalog_updated_at": updated_at,
+            }
+            for book in books
+        ]
+        update_columns = (
+            "title",
+            "author",
+            "tags",
+            "isbn",
+            "cover_url",
+            "catalog_updated_at",
+        )
+        dialect_name = self.session.get_bind().dialect.name
+        insert_factory = {
+            "sqlite": sqlite_insert,
+            "postgresql": postgresql_insert,
+        }.get(dialect_name)
+        if insert_factory is not None:
+            statement = insert_factory(Book).values(rows)
+            statement = statement.on_conflict_do_update(
+                index_elements=[Book.id],
+                set_={
+                    name: getattr(statement.excluded, name)
+                    for name in update_columns
+                },
+            )
+            self.session.execute(statement)
+        else:
+            for row in rows:
+                self.session.merge(Book(**row))
+
+        self.session.commit()
+        self.session.expire_all()
+        persisted_by_id = {
+            book.id: book
+            for book in self.session.scalars(
+                select(Book).where(Book.id.in_([book.id for book in books]))
+            )
+        }
+        return [persisted_by_id[book.id] for book in books]
 
     def get_library_entry(self, user_id: UUID, book_id: UUID) -> LibraryEntry | None:
         return self.session.get(LibraryEntry, (user_id, book_id))
