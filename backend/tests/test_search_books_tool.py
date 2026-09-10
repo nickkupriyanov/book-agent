@@ -1,8 +1,10 @@
 from unittest.mock import create_autospec
 from uuid import UUID
 
+import pytest
 from sqlalchemy.orm import Session
 
+from app.catalog.exceptions import CatalogUnavailableError
 from app.models import Book
 from app.repository import BookRepository
 from app.service import BookService
@@ -12,6 +14,8 @@ from app.tools.books import (
     SearchBooksHandler,
     SearchBooksResult,
 )
+from app.tools.exceptions import ToolExecutionError
+from app.tools.models import ToolErrorCode
 
 DUNE_ID = UUID("10000000-0000-0000-0000-000000000001")
 
@@ -69,3 +73,14 @@ def test_handler_searches_seeded_database_and_returns_empty_result(
         "space_opera",
     ]
     assert missing == SearchBooksResult(books=[])
+
+
+def test_handler_converts_catalog_failure_to_safe_tool_error() -> None:
+    service = create_autospec(BookService, instance=True)
+    service.search_books.side_effect = CatalogUnavailableError("secret URL")
+
+    with pytest.raises(ToolExecutionError) as raised:
+        SearchBooksHandler(service)(SearchBooksArguments(query="Дюна"))
+
+    assert raised.value.code is ToolErrorCode.CATALOG_UNAVAILABLE
+    assert raised.value.message == "Book catalog is unavailable"

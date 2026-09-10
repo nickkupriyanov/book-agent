@@ -20,6 +20,7 @@ class ToolErrorCode(str, Enum):
     LIBRARY_ENTRY_NOT_FOUND = "library_entry_not_found"
     AMBIGUOUS_APPROVAL_BATCH = "ambiguous_approval_batch"
     USER_REJECTED = "user_rejected"
+    CATALOG_UNAVAILABLE = "catalog_unavailable"
 
 
 class ToolCall(BaseModel):

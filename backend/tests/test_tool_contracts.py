@@ -12,7 +12,7 @@ from app.tools.models import ToolAccess
 
 def test_search_books_definition_describes_read_tool() -> None:
     assert SEARCH_BOOKS_TOOL.name == "search_books"
-    assert SEARCH_BOOKS_TOOL.description == "Search the local book catalog by title."
+    assert SEARCH_BOOKS_TOOL.description == "Search the book catalog by title."
     assert SEARCH_BOOKS_TOOL.access is ToolAccess.READ
     assert SEARCH_BOOKS_TOOL.arguments_model is SearchBooksArguments
     assert SEARCH_BOOKS_TOOL.result_model is SearchBooksResult

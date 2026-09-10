@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
 from app.api import router
+from app.catalog.exceptions import CatalogError
 from app.agent.exceptions import (
     ApprovalConflictError,
     ApprovalExpiredError,
@@ -23,6 +24,14 @@ from app.schemas import HealthResponse
 
 app = FastAPI(title="Book Agent API", version="0.1.0")
 app.include_router(router)
+
+
+@app.exception_handler(CatalogError)
+def handle_catalog_error(request: Request, exc: CatalogError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={"detail": "Book catalog is unavailable"},
+    )
 
 
 @app.exception_handler(ApprovalNotFoundError)

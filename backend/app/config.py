@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 from uuid import UUID
 
 from pydantic import Field, SecretStr
@@ -14,6 +15,14 @@ class Settings(BaseSettings):
     deepseek_timeout_seconds: float = 30.0
     agent_max_steps: int = Field(default=5, ge=1)
     pending_action_ttl_seconds: int = Field(default=900, ge=1)
+    catalog_provider: Literal["local", "open_library"] = "local"
+    open_library_base_url: str = "https://openlibrary.org"
+    open_library_user_agent: str = "BookAgentLearning/0.1"
+    open_library_timeout_seconds: float = Field(default=3.0, gt=0)
+    open_library_max_retries: int = Field(default=1, ge=0, le=3)
+    open_library_retry_delay_seconds: float = Field(default=0.1, ge=0, le=5)
+    catalog_cache_ttl_seconds: float = Field(default=300, gt=0)
+    catalog_cache_max_entries: int = Field(default=128, ge=1, le=10_000)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

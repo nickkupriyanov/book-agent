@@ -1,6 +1,12 @@
+from unittest.mock import create_autospec
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+
+from app.catalog.exceptions import CatalogUnavailableError
+from app.dependencies import get_book_service
+from app.main import app
+from app.service import BookService
 
 DUNE_ID = "10000000-0000-0000-0000-000000000001"
 
@@ -104,3 +110,17 @@ def test_invalid_status_returns_validation_error(client: TestClient) -> None:
 def test_search_limit_is_validated(client: TestClient) -> None:
     assert client.get("/api/books/search", params={"q": "a", "limit": 0}).status_code == 422
     assert client.get("/api/books/search", params={"q": "a", "limit": 51}).status_code == 422
+
+
+def test_catalog_error_returns_safe_bad_gateway(client: TestClient) -> None:
+    service = create_autospec(BookService, instance=True)
+    service.search_books.side_effect = CatalogUnavailableError(
+        "https://secret.example/internal"
+    )
+    app.dependency_overrides[get_book_service] = lambda: service
+
+    response = client.get("/api/books/search", params={"q": "Dune"})
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Book catalog is unavailable"}
+    assert "secret.example" not in response.text

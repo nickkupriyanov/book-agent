@@ -1,10 +1,16 @@
+from collections.abc import Generator
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends
+import httpx
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from app.catalog.local import LocalBookCatalog
+from app.catalog.open_library import HttpOpenLibraryTransport, OpenLibraryCatalog
+from app.catalog.provider import BookCatalog
+from app.catalog.resilient import ResilientBookCatalog, TTLSearchCache
 from app.agent.repository import AgentRunRepository
 from app.agent.approval import ApprovalService
 from app.agent.service import AgentService
@@ -35,9 +41,45 @@ from app.tools.recommendations import (
 from app.tools.registry import ToolRegistry
 
 
-def get_book_service(db: Annotated[Session, Depends(get_db)]) -> BookService:
-    repository = BookRepository(db)
-    return BookService(repository, LocalBookCatalog(repository))
+@lru_cache
+def _get_catalog_cache(ttl_seconds: float, max_entries: int) -> TTLSearchCache:
+    return TTLSearchCache(ttl_seconds=ttl_seconds, max_entries=max_entries)
+
+
+def get_book_catalog(
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Generator[BookCatalog, None, None]:
+    local_catalog = LocalBookCatalog(BookRepository(db))
+    if settings.catalog_provider == "local":
+        yield local_catalog
+        return
+
+    with httpx.Client(timeout=settings.open_library_timeout_seconds) as client:
+        primary = OpenLibraryCatalog(
+            HttpOpenLibraryTransport(
+                client,
+                base_url=settings.open_library_base_url,
+                user_agent=settings.open_library_user_agent,
+            )
+        )
+        yield ResilientBookCatalog(
+            primary,
+            local_catalog,
+            _get_catalog_cache(
+                settings.catalog_cache_ttl_seconds,
+                settings.catalog_cache_max_entries,
+            ),
+            max_retries=settings.open_library_max_retries,
+            retry_delay_seconds=settings.open_library_retry_delay_seconds,
+        )
+
+
+def get_book_service(
+    db: Annotated[Session, Depends(get_db)],
+    catalog: Annotated[BookCatalog, Depends(get_book_catalog)],
+) -> BookService:
+    return BookService(BookRepository(db), catalog)
 
 
 def get_llm_provider(

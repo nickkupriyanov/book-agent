@@ -2,8 +2,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.catalog.exceptions import CatalogError
 from app.service import BookService
-from app.tools.models import ToolAccess, ToolDefinition
+from app.tools.exceptions import ToolExecutionError
+from app.tools.models import ToolAccess, ToolDefinition, ToolErrorCode
 
 
 class SearchBooksArguments(BaseModel):
@@ -33,10 +35,16 @@ class SearchBooksHandler:
         self._service = service
 
     def __call__(self, arguments: SearchBooksArguments) -> SearchBooksResult:
-        books = self._service.search_books(
-            query=arguments.query,
-            limit=arguments.limit,
-        )
+        try:
+            books = self._service.search_books(
+                query=arguments.query,
+                limit=arguments.limit,
+            )
+        except CatalogError as exc:
+            raise ToolExecutionError(
+                ToolErrorCode.CATALOG_UNAVAILABLE,
+                "Book catalog is unavailable",
+            ) from exc
         return SearchBooksResult(
             books=[BookToolResult.model_validate(book) for book in books]
         )
@@ -44,7 +52,7 @@ class SearchBooksHandler:
 
 SEARCH_BOOKS_TOOL = ToolDefinition(
     name="search_books",
-    description="Search the local book catalog by title.",
+    description="Search the book catalog by title.",
     access=ToolAccess.READ,
     arguments_model=SearchBooksArguments,
     result_model=SearchBooksResult,
