@@ -22,6 +22,14 @@ export type PendingActionStatus =
   | 'rejected'
   | 'expired'
 
+export type CatalogSource = 'local' | 'open_library'
+
+export interface CatalogSearchTraceResponse {
+  source: CatalogSource
+  degraded: boolean
+  cached: boolean
+}
+
 export interface AgentWorkingStateResponse {
   goal: string
   completed_actions: Array<Record<string, unknown>>
@@ -43,6 +51,7 @@ export interface AgentStepResponse {
   tool_results: Array<Record<string, unknown>>
   error: string | null
   duration_ms: number
+  catalog_searches?: CatalogSearchTraceResponse[]
 }
 
 export interface AgentRunResponse {
@@ -62,6 +71,13 @@ export interface SafeTraceStep {
   durationMs: number
   toolNames: string[]
   resultCount: number
+  catalogSearches: CatalogSearchTrace[]
+}
+
+export interface CatalogSearchTrace {
+  source: CatalogSource
+  degraded: boolean
+  cached: boolean
 }
 
 export interface PendingAction {

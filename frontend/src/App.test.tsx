@@ -417,6 +417,83 @@ describe('Book Agent chat', () => {
     expect(screen.queryByText('internal exception details')).not.toBeInTheDocument()
   })
 
+  it('shows allowlisted catalog source, cache, and fallback metadata', async () => {
+    const user = userEvent.setup()
+    await submitResponse(
+      {
+        ...makeRun(),
+        steps: [
+          {
+            ...makeToolStep(1, 'search_books'),
+            catalog_searches: [
+              {
+                source: 'open_library',
+                degraded: false,
+                cached: false,
+                provider_payload: 'secret catalog payload',
+              },
+            ],
+          },
+          {
+            ...makeToolStep(2, 'search_books'),
+            catalog_searches: [
+              {
+                source: 'open_library',
+                degraded: false,
+                cached: true,
+              },
+            ],
+          },
+          {
+            ...makeToolStep(3, 'search_books'),
+            catalog_searches: [
+              {
+                source: 'local',
+                degraded: true,
+                cached: false,
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    await user.click(await screen.findByText('Как работал агент: шагов 3'))
+
+    expect(screen.getByText('Источник: Open Library.')).toBeVisible()
+    expect(screen.getByText('Источник: Open Library (кэш).')).toBeVisible()
+    expect(
+      screen.getByText(
+        'Источник: локальный резервный каталог. Результаты могут быть неполными.',
+      ),
+    ).toBeVisible()
+    expect(document.body).not.toHaveTextContent('secret catalog payload')
+  })
+
+  it('rejects malformed catalog trace metadata', async () => {
+    await submitResponse(
+      {
+        ...makeRun(),
+        steps: [
+          {
+            ...makeToolStep(1, 'search_books'),
+            catalog_searches: [
+              {
+                source: 'unknown_provider',
+                degraded: 'false',
+                cached: false,
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    expect(
+      await screen.findByText('Сервер вернул неподдерживаемый формат запуска.'),
+    ).toBeVisible()
+  })
+
   it('shows a controlled contract error for an unknown status', async () => {
     await submitResponse({ ...makeRun(), status: 'paused_by_provider' })
 

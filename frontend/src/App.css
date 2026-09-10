@@ -425,6 +425,15 @@
   overflow-wrap: anywhere;
 }
 
+.run-trace li .trace-step__catalog {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.run-trace li .trace-step__catalog[data-degraded="true"] {
+  color: var(--danger);
+}
+
 .message p {
   margin: 0;
   line-height: 1.5;

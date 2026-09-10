@@ -157,6 +157,17 @@ function resultLabel(step: SafeTraceStep): string {
   return `Получено результатов tool: ${step.resultCount}`
 }
 
+function catalogSearchLabel(
+  search: SafeTraceStep['catalogSearches'][number],
+): string {
+  if (search.degraded) {
+    return 'Источник: локальный резервный каталог. Результаты могут быть неполными.'
+  }
+  if (search.source === 'local') return 'Источник: локальный каталог.'
+  if (search.cached) return 'Источник: Open Library (кэш).'
+  return 'Источник: Open Library.'
+}
+
 function RunTrace({ steps }: { steps: SafeTraceStep[] }) {
   if (steps.length === 0) return null
 
@@ -176,6 +187,15 @@ function RunTrace({ steps }: { steps: SafeTraceStep[] }) {
                 : 'Финальный ответ модели'}
             </p>
             <p>{resultLabel(step)}</p>
+            {step.catalogSearches.map((search, index) => (
+              <p
+                className="trace-step__catalog"
+                data-degraded={search.degraded}
+                key={`${search.source}-${index}`}
+              >
+                {catalogSearchLabel(search)}
+              </p>
+            ))}
           </li>
         ))}
       </ol>

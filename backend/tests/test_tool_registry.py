@@ -65,7 +65,10 @@ def test_registry_validates_arguments_and_calls_handler() -> None:
                 "author": "Фрэнк Герберт",
                 "tags": ["politics", "science_fiction", "space_opera"],
             }
-        ]
+        ],
+        "source": "local",
+        "degraded": False,
+        "cached": False,
     }
     assert result.error is None
 
@@ -97,7 +100,12 @@ def test_registry_prepares_valid_call_without_calling_handler() -> None:
     result = registry.execute_prepared(prepared)
 
     handler.assert_called_once_with(SearchBooksArguments(query="Дюна", limit=20))
-    assert result.output == {"books": []}
+    assert result.output == {
+        "books": [],
+        "source": "local",
+        "degraded": False,
+        "cached": False,
+    }
 
 
 def test_registry_rejects_invalid_arguments_during_preparation() -> None:

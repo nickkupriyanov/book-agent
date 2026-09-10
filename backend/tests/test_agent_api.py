@@ -88,6 +88,11 @@ def test_create_agent_run_executes_tools_and_returns_trace(
     ] == ["search_books", "add_book"]
     assert payload["steps"][0]["tool_results"][0]["tool_call_id"] == "search-1"
     assert payload["steps"][1]["tool_results"][0]["tool_call_id"] == "add-1"
+    assert payload["steps"][0]["catalog_searches"] == [
+        {"source": "local", "degraded": False, "cached": False}
+    ]
+    assert payload["steps"][1]["catalog_searches"] == []
+    assert payload["steps"][2]["catalog_searches"] == []
 
     library = client.get("/api/library").json()
     assert len(library) == 1

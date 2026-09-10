@@ -3,6 +3,7 @@ import type {
   AgentRun,
   AgentRunStatus,
   ApprovalResult,
+  CatalogSearchTrace,
   LibraryEntry,
   PendingAction,
   ReadingStatus,
@@ -63,6 +64,27 @@ function decodeToolNames(response: unknown): string[] {
   })
 }
 
+function decodeCatalogSearches(value: unknown): CatalogSearchTrace[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new ContractError()
+
+  return value.map((search) => {
+    if (
+      !isRecord(search) ||
+      (search.source !== 'local' && search.source !== 'open_library') ||
+      typeof search.degraded !== 'boolean' ||
+      typeof search.cached !== 'boolean'
+    ) {
+      throw new ContractError()
+    }
+    return {
+      source: search.source,
+      degraded: search.degraded,
+      cached: search.cached,
+    }
+  })
+}
+
 function decodePendingAction(value: unknown): PendingAction {
   if (!isRecord(value)) {
     throw new ContractError(
@@ -113,6 +135,7 @@ function decodeTraceStep(value: unknown): SafeTraceStep {
     durationMs: durationMs as number,
     toolNames: decodeToolNames(value.response),
     resultCount: toolResults.length,
+    catalogSearches: decodeCatalogSearches(value.catalog_searches),
   }
 }
 

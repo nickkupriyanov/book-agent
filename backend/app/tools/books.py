@@ -3,6 +3,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.catalog.exceptions import CatalogError
+from app.catalog.models import CatalogSource
 from app.service import BookService
 from app.tools.exceptions import ToolExecutionError
 from app.tools.models import ToolAccess, ToolDefinition, ToolErrorCode
@@ -26,6 +27,9 @@ class BookToolResult(BaseModel):
 
 class SearchBooksResult(BaseModel):
     books: list[BookToolResult]
+    source: CatalogSource = CatalogSource.LOCAL
+    degraded: bool = False
+    cached: bool = False
 
     model_config = ConfigDict(extra="forbid")
 
@@ -36,7 +40,7 @@ class SearchBooksHandler:
 
     def __call__(self, arguments: SearchBooksArguments) -> SearchBooksResult:
         try:
-            books = self._service.search_books(
+            result = self._service.search_catalog(
                 query=arguments.query,
                 limit=arguments.limit,
             )
@@ -46,7 +50,10 @@ class SearchBooksHandler:
                 "Book catalog is unavailable",
             ) from exc
         return SearchBooksResult(
-            books=[BookToolResult.model_validate(book) for book in books]
+            books=[BookToolResult.model_validate(book) for book in result.books],
+            source=result.source,
+            degraded=result.degraded,
+            cached=result.cached,
         )
 
 

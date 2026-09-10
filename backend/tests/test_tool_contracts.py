@@ -69,4 +69,7 @@ def test_search_books_result_has_structured_book_list() -> None:
     schema = SEARCH_BOOKS_TOOL.result_model.model_json_schema()
 
     assert schema["properties"]["books"]["type"] == "array"
+    assert schema["properties"]["source"]["default"] == "local"
+    assert schema["properties"]["degraded"]["default"] is False
+    assert schema["properties"]["cached"]["default"] is False
     assert schema["$defs"]["BookToolResult"] == BookToolResult.model_json_schema()

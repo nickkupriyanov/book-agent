@@ -1,9 +1,10 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, computed_field
 
 from app.agent.state import AgentWorkingState
+from app.catalog.models import CatalogSource
 from app.models import AgentRunStatus, PendingActionStatus, ReadingStatus
 from app.tools.models import ToolResult
 
@@ -24,6 +25,14 @@ class ApprovalDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CatalogSearchTraceResponse(BaseModel):
+    source: CatalogSource
+    degraded: StrictBool
+    cached: StrictBool
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class AgentStepResponse(BaseModel):
     step_number: int
     messages: list[dict[str, object]]
@@ -33,6 +42,30 @@ class AgentStepResponse(BaseModel):
     duration_ms: int
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def catalog_searches(self) -> list[CatalogSearchTraceResponse]:
+        searches: list[CatalogSearchTraceResponse] = []
+        for result in self.tool_results:
+            if result.get("tool_name") != "search_books":
+                continue
+            output = result.get("output")
+            if not isinstance(output, dict) or result.get("error") is not None:
+                continue
+            try:
+                searches.append(
+                    CatalogSearchTraceResponse.model_validate(
+                        {
+                            "source": output.get("source"),
+                            "degraded": output.get("degraded"),
+                            "cached": output.get("cached"),
+                        }
+                    )
+                )
+            except ValueError:
+                continue
+        return searches
 
 
 class PendingActionResponse(BaseModel):
