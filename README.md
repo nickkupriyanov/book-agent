@@ -264,6 +264,35 @@ uv run uvicorn app.main:app --reload
 
 API будет доступен на `http://localhost:8000`, интерактивная схема — на `http://localhost:8000/docs`.
 
+По умолчанию backend использует SQLite. Для локального PostgreSQL из корня
+проекта поднимите контейнер с healthcheck и постоянным dev-volume:
+
+```bash
+docker compose up -d --wait postgres
+```
+
+Если локальный порт `5432` уже занят, задайте другой, например
+`POSTGRES_PORT=55432 docker compose up -d --wait postgres`, и используйте тот же
+порт в `DATABASE_URL` и `TEST_POSTGRES_ADMIN_URL`.
+
+Затем замените `DATABASE_URL` в `backend/.env` и выполните обычные миграции и
+seed — это единственная настройка, которая выбирает СУБД:
+
+```dotenv
+DATABASE_URL=postgresql+psycopg://book_agent:book_agent@localhost:5432/book_agent
+```
+
+```bash
+cd backend
+uv run alembic upgrade head
+uv run python -m app.seed
+uv run uvicorn app.main:app --reload
+```
+
+PostgreSQL создаётся с нуля; перенос данных из существующего SQLite-файла в
+этот этап не входит. Остановить контейнер без удаления данных можно командой
+`docker compose down` из корня проекта.
+
 Синхронный запуск агента:
 
 ```bash
@@ -339,6 +368,15 @@ uv run pytest
 ```
 
 Тесты не используют LLM или внешнюю сеть.
+
+PostgreSQL-проверка создаёт и удаляет отдельную временную базу на локальном
+сервере, поэтому запускается явно после старта контейнера:
+
+```bash
+cd backend
+TEST_POSTGRES_ADMIN_URL=postgresql+psycopg://book_agent:book_agent@localhost:5432/postgres \
+  uv run pytest -m postgres
+```
 
 ## Границы первой версии
 

@@ -76,9 +76,6 @@ class Book(Base):
 
 class LibraryEntry(Base):
     __tablename__ = "library_entries"
-    __table_args__ = (
-        UniqueConstraint("user_id", "book_id", name="uq_library_user_book"),
-    )
 
     user_id: Mapped[UUID] = mapped_column(primary_key=True)
     book_id: Mapped[UUID] = mapped_column(
