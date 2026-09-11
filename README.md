@@ -4,10 +4,9 @@
 
 Пользователь сможет попросить агента найти книгу, посмотреть библиотеку, изменить статус чтения или подобрать следующую книгу. Модель при этом не получает прямой доступ к базе данных: она выбирает доступные инструменты, а backend валидирует и безопасно выполняет каждый вызов.
 
-> **Статус:** этапы 1-7 завершены. React-интерфейс проходит четыре MVP-сценария,
-> восстанавливает approval после перезагрузки, поддерживает клавиатуру и
-> подтверждает write-результат повторным чтением backend. Следующий этап — 8:
-> внешний каталог и PostgreSQL.
+> **Статус:** этапы 1–8 завершены. Поиск использует Open Library, сохраняет
+> нормализованные произведения, явно показывает cache/fallback в React trace и
+> работает на SQLite и PostgreSQL. Следующий этап — 9: память и RAG по заметкам.
 
 ## Зачем нужен этот проект
 
@@ -75,8 +74,8 @@ flowchart LR
     LOOP --> REG["Tool registry"]
     REG --> SVC["Book service"]
     SVC --> REPO["Repositories"]
-    REPO --> DB[("SQLite → PostgreSQL")]
-    REG --> CATALOG["Local seed → external catalog"]
+    REPO --> DB[("SQLite / PostgreSQL")]
+    REG --> CATALOG["Open Library + local fallback"]
     LOOP --> TRACE["Runs and traces"]
 ```
 
@@ -264,19 +263,19 @@ uv run uvicorn app.main:app --reload
 
 API будет доступен на `http://localhost:8000`, интерактивная схема — на `http://localhost:8000/docs`.
 
-По умолчанию backend использует SQLite. Для локального PostgreSQL из корня
-проекта поднимите контейнер с healthcheck и постоянным dev-volume:
+По умолчанию backend использует SQLite. Чистый локальный PostgreSQL, миграции и
+seed поднимаются из корня проекта одной командой:
 
 ```bash
-docker compose up -d --wait postgres
+./scripts/bootstrap-postgres.sh
 ```
 
 Если локальный порт `5432` уже занят, задайте другой, например
 `POSTGRES_PORT=55432 docker compose up -d --wait postgres`, и используйте тот же
 порт в `DATABASE_URL` и `TEST_POSTGRES_ADMIN_URL`.
 
-Затем замените `DATABASE_URL` в `backend/.env` и выполните обычные миграции и
-seed — это единственная настройка, которая выбирает СУБД:
+Чтобы постоянно запускать backend на PostgreSQL, замените `DATABASE_URL` в
+`backend/.env`. Это единственная настройка, которая выбирает СУБД:
 
 ```dotenv
 DATABASE_URL=postgresql+psycopg://book_agent:book_agent@localhost:5432/book_agent
@@ -292,6 +291,11 @@ uv run uvicorn app.main:app --reload
 PostgreSQL создаётся с нуля; перенос данных из существующего SQLite-файла в
 этот этап не входит. Остановить контейнер без удаления данных можно командой
 `docker compose down` из корня проекта.
+
+При `CATALOG_PROVIDER=open_library` поиск сначала обращается к Open Library.
+Успешные результаты кэшируются в памяти и сохраняются в БД. После исчерпания
+временной сетевой ошибки backend возвращает локальный fallback с
+`degraded=true`; React показывает, что такой результат может быть неполным.
 
 Синхронный запуск агента:
 
@@ -350,7 +354,7 @@ curl -X POST http://localhost:8000/api/agent/runs \
 
 ### Frontend
 
-Frontend появится на этапе 7; команды ниже пока являются целевым интерфейсом и ожидаемо не работают.
+Для frontend нужен Node.js 22.12 или новее:
 
 ```bash
 cd frontend
@@ -358,7 +362,7 @@ npm install
 npm run dev
 ```
 
-Планируемый адрес интерфейса: `http://localhost:5173`.
+Интерфейс будет доступен на `http://localhost:5173`.
 
 ### Тесты
 
@@ -375,7 +379,16 @@ PostgreSQL-проверка создаёт и удаляет отдельную 
 ```bash
 cd backend
 TEST_POSTGRES_ADMIN_URL=postgresql+psycopg://book_agent:book_agent@localhost:5432/postgres \
-  uv run pytest -m postgres
+  uv run pytest
+```
+
+Реальный Open Library не входит в основной suite. Отдельный smoke запускается
+явно; увеличенный timeout относится только к этой ручной диагностике:
+
+```bash
+cd backend
+OPEN_LIBRARY_TIMEOUT_SECONDS=15 RUN_OPEN_LIBRARY_SMOKE=1 \
+  uv run pytest -m network
 ```
 
 ## Границы первой версии

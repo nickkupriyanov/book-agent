@@ -25,4 +25,5 @@ pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
     "postgres: opt-in integration tests that require a PostgreSQL server",
+    "network: opt-in smoke tests that call an external service",
 ]

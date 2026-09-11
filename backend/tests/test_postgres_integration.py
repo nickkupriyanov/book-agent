@@ -11,19 +11,39 @@ from fastapi.testclient import TestClient
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.catalog.models import CatalogSource
+from app.catalog.open_library import OpenLibraryCatalog
 from app.config import get_settings
 from app.db import get_db
 from app.dependencies import get_llm_provider
 from app.llm.fake import FakeLLMProvider
 from app.llm.models import ModelResponse
 from app.main import app
+from app.models import Book, ReadingStatus
+from app.repository import BookRepository
 from app.seed import seed_database
+from app.service import BookService
 from app.tools.models import ToolCall
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 MIGRATIONS_DIR = BACKEND_DIR / "migrations"
 DUNE_ID = "10000000-0000-0000-0000-000000000001"
+
+
+class FixtureOpenLibraryTransport:
+    def search(self, query: str, limit: int) -> object:
+        return {
+            "docs": [
+                {
+                    "key": "/works/OL45804W",
+                    "title": "Fantastic Mr Fox",
+                    "author_name": ["Roald Dahl"],
+                    "isbn": ["9780140328721"],
+                    "subject_key": ["Children's stories"],
+                }
+            ]
+        }
 
 
 def _alembic_config() -> Config:
@@ -144,3 +164,50 @@ def test_postgres_migrations_seed_crud_and_approval(
     finally:
         app.dependency_overrides.clear()
         engine.dispose()
+
+
+@pytest.mark.parametrize("database_backend", ["sqlite", "postgresql"])
+def test_external_catalog_domain_contract_on_both_databases(
+    database_backend: str,
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if database_backend == "postgresql":
+        database_url = request.getfixturevalue("postgres_database_url")
+    else:
+        database_url = f"sqlite:///{tmp_path / 'stage8-contract.db'}"
+        monkeypatch.setenv("DATABASE_URL", database_url)
+        get_settings.cache_clear()
+
+    command.upgrade(_alembic_config(), "head")
+    engine = sa.create_engine(database_url)
+    testing_session = sessionmaker(bind=engine, expire_on_commit=False)
+    try:
+        with testing_session() as session:
+            service = BookService(
+                BookRepository(session),
+                OpenLibraryCatalog(FixtureOpenLibraryTransport()),
+            )
+
+            first = service.search_catalog("Fantastic Mr Fox", 5)
+            book_id = first.books[0].id
+            service.add_book(
+                user_id=get_settings().demo_user_id,
+                book_id=book_id,
+                status=ReadingStatus.WANT_TO_READ,
+            )
+            library = service.get_library(get_settings().demo_user_id)
+            second = service.search_catalog("Fantastic Mr Fox", 5)
+
+            assert first.source is CatalogSource.OPEN_LIBRARY
+            assert second.books[0].id == book_id
+            assert library[0].book_id == book_id
+            assert session.scalar(
+                sa.select(sa.func.count())
+                .select_from(Book)
+                .where(Book.id == book_id)
+            ) == 1
+    finally:
+        engine.dispose()
+        get_settings.cache_clear()
