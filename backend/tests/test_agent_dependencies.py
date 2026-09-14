@@ -10,6 +10,8 @@ from app.dependencies import (
 )
 from app.llm.fake import FakeLLMProvider
 from app.llm.models import ModelResponse
+from app.memory.repository import MemoryRepository
+from app.memory.service import MemoryService
 from app.models import AgentRunStatus
 from app.repository import BookRepository
 from app.service import BookService
@@ -20,11 +22,16 @@ OTHER_USER_ID = UUID("00000000-0000-0000-0000-000000000002")
 DUNE_ID = UUID("10000000-0000-0000-0000-000000000001")
 
 
-def test_tool_registry_wires_six_allowed_tools_for_configured_user(
+def test_tool_registry_wires_seven_allowed_tools_for_configured_user(
     session: Session,
 ) -> None:
     service = BookService(BookRepository(session))
-    registry = get_tool_registry(service, Settings(demo_user_id=USER_ID))
+    memory_service = MemoryService(MemoryRepository(session))
+    registry = get_tool_registry(
+        service,
+        memory_service,
+        Settings(demo_user_id=USER_ID),
+    )
 
     assert [definition.name for definition in registry.definitions()] == [
         "search_books",
@@ -32,6 +39,7 @@ def test_tool_registry_wires_six_allowed_tools_for_configured_user(
         "get_user_library",
         "add_book",
         "update_book_status",
+        "search_user_notes",
         "remove_book",
     ]
 
@@ -53,7 +61,11 @@ def test_tool_registry_wires_six_allowed_tools_for_configured_user(
 
 def test_wired_registry_keeps_unknown_tool_controlled(session: Session) -> None:
     service = BookService(BookRepository(session))
-    registry = get_tool_registry(service, Settings(demo_user_id=USER_ID))
+    registry = get_tool_registry(
+        service,
+        MemoryService(MemoryRepository(session)),
+        Settings(demo_user_id=USER_ID),
+    )
 
     result = registry.execute(
         ToolCall(
@@ -70,7 +82,11 @@ def test_wired_registry_keeps_unknown_tool_controlled(session: Session) -> None:
 def test_agent_service_uses_configured_step_limit(session: Session) -> None:
     settings = Settings(demo_user_id=USER_ID, agent_max_steps=1)
     book_service = BookService(BookRepository(session))
-    registry = get_tool_registry(book_service, settings)
+    registry = get_tool_registry(
+        book_service,
+        MemoryService(MemoryRepository(session)),
+        settings,
+    )
     repository = get_agent_repository(session)
     provider = FakeLLMProvider(
         [

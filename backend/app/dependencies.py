@@ -36,6 +36,10 @@ from app.tools.library import (
     RemoveBookHandler,
     UpdateBookStatusHandler,
 )
+from app.tools.memory import (
+    SEARCH_USER_NOTES_TOOL,
+    SearchUserNotesHandler,
+)
 from app.tools.recommendations import (
     FIND_SIMILAR_BOOKS_TOOL,
     FindSimilarBooksHandler,
@@ -113,6 +117,7 @@ def get_chat_service(
 
 def get_tool_registry(
     service: Annotated[BookService, Depends(get_book_service)],
+    memory_service: Annotated[MemoryService, Depends(get_memory_service)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ToolRegistry:
     registry = ToolRegistry()
@@ -132,6 +137,10 @@ def get_tool_registry(
     registry.register(
         UPDATE_BOOK_STATUS_TOOL,
         UpdateBookStatusHandler(service, settings.demo_user_id),
+    )
+    registry.register(
+        SEARCH_USER_NOTES_TOOL,
+        SearchUserNotesHandler(memory_service, settings.demo_user_id),
     )
     registry.register(
         REMOVE_BOOK_TOOL,
