@@ -97,7 +97,10 @@ def get_memory_service(
 def get_llm_provider(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> LLMProvider:
-    if settings.deepseek_api_key is None:
+    if (
+        settings.deepseek_api_key is None
+        or not settings.deepseek_api_key.get_secret_value()
+    ):
         raise LLMNotConfiguredError("LLM provider is not configured")
 
     client = OpenAI(
