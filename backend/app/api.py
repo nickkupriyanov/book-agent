@@ -12,11 +12,8 @@ from app.dependencies import (
     get_agent_service,
     get_approval_service,
     get_book_service,
-    get_chat_service,
     get_memory_service,
 )
-from app.llm.models import ModelResponse
-from app.llm.service import ChatService
 from app.memory.service import MemoryService
 from app.models import ReadingStatus
 from app.schemas import (
@@ -26,7 +23,6 @@ from app.schemas import (
     ApprovalDecisionRequest,
     ApprovalResponse,
     BookResponse,
-    ChatRequest,
     LibraryEntryCreate,
     LibraryEntryResponse,
     LibraryStatusUpdate,
@@ -39,18 +35,6 @@ from app.schemas import (
 from app.service import BookService
 
 router = APIRouter(prefix="/api")
-
-
-@router.post(
-    "/chat",
-    response_model=ModelResponse,
-    response_model_exclude={"tool_calls"},
-)
-def chat(
-    payload: ChatRequest,
-    service: Annotated[ChatService, Depends(get_chat_service)],
-) -> ModelResponse:
-    return service.reply(payload.message)
 
 
 @router.post(

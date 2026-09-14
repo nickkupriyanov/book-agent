@@ -19,7 +19,6 @@ from app.db import get_db
 from app.llm.deepseek import DeepSeekProvider
 from app.llm.exceptions import LLMNotConfiguredError
 from app.llm.provider import LLMProvider
-from app.llm.service import ChatService
 from app.memory.repository import MemoryRepository
 from app.memory.service import MemoryService
 from app.repository import BookRepository
@@ -110,12 +109,6 @@ def get_llm_provider(
         max_retries=0,
     )
     return DeepSeekProvider(client=client, model=settings.deepseek_model)
-
-
-def get_chat_service(
-    provider: Annotated[LLMProvider, Depends(get_llm_provider)],
-) -> ChatService:
-    return ChatService(provider)
 
 
 def get_tool_registry(

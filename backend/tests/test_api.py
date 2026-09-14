@@ -18,6 +18,12 @@ def test_health(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_legacy_direct_chat_route_is_not_available(client: TestClient) -> None:
+    response = client.post("/api/chat", json={"message": "Расскажи о Дюне"})
+
+    assert response.status_code == 404
+
+
 def test_search_is_case_insensitive(client: TestClient) -> None:
     response = client.get("/api/books/search", params={"q": "дЮнА"})
 

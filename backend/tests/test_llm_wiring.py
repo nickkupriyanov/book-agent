@@ -63,13 +63,16 @@ def test_get_llm_provider_builds_configured_deepseek_client() -> None:
     )
 
 
-def test_chat_returns_503_when_deepseek_api_key_is_missing(
+def test_agent_returns_503_when_deepseek_api_key_is_missing(
     client: TestClient,
 ) -> None:
     settings = Settings(deepseek_api_key=None)
     app.dependency_overrides[get_settings] = lambda: settings
 
-    response = client.post("/api/chat", json={"message": "Расскажи о Дюне"})
+    response = client.post(
+        "/api/agent/runs",
+        json={"message": "Расскажи о Дюне"},
+    )
 
     assert response.status_code == 503
     assert response.json() == {"detail": "LLM provider is not configured"}

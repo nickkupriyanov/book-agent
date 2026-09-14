@@ -20,10 +20,6 @@ class HealthResponse(BaseModel):
     status: str
 
 
-class ChatRequest(BaseModel):
-    message: str = Field(min_length=1)
-
-
 class AgentRunRequest(BaseModel):
     message: str = Field(min_length=1)
 
