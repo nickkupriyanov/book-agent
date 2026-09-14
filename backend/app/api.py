@@ -16,6 +16,7 @@ from app.dependencies import (
 )
 from app.memory.service import MemoryService
 from app.models import ReadingStatus
+from app.observability import SafeRunTrace, build_safe_trace
 from app.schemas import (
     AgentRunRequest,
     AgentRunResponse,
@@ -67,6 +68,24 @@ def get_agent_run(
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return AgentRunResponse.model_validate(run)
+
+
+@router.get(
+    "/agent/runs/{run_id}/trace",
+    response_model=SafeRunTrace,
+)
+def get_agent_run_trace(
+    run_id: UUID,
+    repository: Annotated[
+        AgentRunRepository,
+        Depends(get_agent_repository),
+    ],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SafeRunTrace:
+    run = repository.get_run_for_user(run_id, settings.demo_user_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return build_safe_trace(run)
 
 
 @router.post(
