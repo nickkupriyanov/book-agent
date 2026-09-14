@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_timeout_seconds: float = 30.0
     agent_max_steps: int = Field(default=5, ge=1)
+    agent_history_max_tool_rounds: int = Field(default=3, ge=1, le=20)
     pending_action_ttl_seconds: int = Field(default=900, ge=1)
     catalog_provider: Literal["local", "open_library"] = "local"
     open_library_base_url: str = "https://openlibrary.org"

@@ -79,8 +79,12 @@ def test_wired_registry_keeps_unknown_tool_controlled(session: Session) -> None:
     assert result.error.code is ToolErrorCode.UNKNOWN_TOOL
 
 
-def test_agent_service_uses_configured_step_limit(session: Session) -> None:
-    settings = Settings(demo_user_id=USER_ID, agent_max_steps=1)
+def test_agent_service_uses_configured_limits(session: Session) -> None:
+    settings = Settings(
+        demo_user_id=USER_ID,
+        agent_max_steps=1,
+        agent_history_max_tool_rounds=2,
+    )
     book_service = BookService(BookRepository(session))
     registry = get_tool_registry(
         book_service,
@@ -109,3 +113,4 @@ def test_agent_service_uses_configured_step_limit(session: Session) -> None:
     assert run.status is AgentRunStatus.STEP_LIMIT_EXCEEDED
     assert run.stop_reason == "max_steps"
     assert len(run.steps) == 1
+    assert agent._history_max_tool_rounds == 2
