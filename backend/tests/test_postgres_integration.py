@@ -106,6 +106,9 @@ def test_postgres_migrations_seed_crud_and_approval(
         "agent_runs",
         "agent_steps",
         "pending_actions",
+        "user_notes",
+        "note_chunks",
+        "user_preferences",
     } <= set(inspector.get_table_names())
     assert "uq_pending_actions_active_run" in {
         index["name"] for index in inspector.get_indexes("pending_actions")

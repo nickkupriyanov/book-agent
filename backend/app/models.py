@@ -150,7 +150,11 @@ class NoteChunk(Base):
         index=True,
     )
     user_id: Mapped[UUID] = mapped_column(index=True)
-    book_id: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
+    book_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("books.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     position: Mapped[int] = mapped_column(Integer)
     content: Mapped[str] = mapped_column(Text)
     token_count: Mapped[int] = mapped_column(Integer)
