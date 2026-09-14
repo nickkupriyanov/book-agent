@@ -113,6 +113,12 @@ def test_postgres_migrations_seed_crud_and_approval(
     assert "uq_pending_actions_active_run" in {
         index["name"] for index in inspector.get_indexes("pending_actions")
     }
+    assert {"provider_name", "model_name", "prompt_version"} <= {
+        column["name"] for column in inspector.get_columns("agent_runs")
+    }
+    assert {"input_tokens", "output_tokens"} <= {
+        column["name"] for column in inspector.get_columns("agent_steps")
+    }
 
     testing_session = sessionmaker(bind=engine, expire_on_commit=False)
     with testing_session() as session:
