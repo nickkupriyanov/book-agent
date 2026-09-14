@@ -1,0 +1,19 @@
+{
+  "dataset_version": "book-agent-evals-v1",
+  "dataset_sha256": "06b9976ca0c3ac5cd74d660923ea606efaba182cf8bb33290f16079b1c93ee25",
+  "prompt_version": "book-agent-system-v1",
+  "provider": "fake",
+  "model": "scripted",
+  "metrics": {
+    "scenario_count": 21,
+    "successful_scenarios": 21,
+    "task_success_rate": 1.0,
+    "mean_tool_precision": 1.0,
+    "mean_tool_recall": 1.0,
+    "forbidden_calls": 0,
+    "invalid_argument_calls": 0,
+    "total_steps": 43,
+    "input_tokens": 30,
+    "output_tokens": 7
+  }
+}
