@@ -4,9 +4,10 @@
 
 Пользователь сможет попросить агента найти книгу, посмотреть библиотеку, изменить статус чтения или подобрать следующую книгу. Модель при этом не получает прямой доступ к базе данных: она выбирает доступные инструменты, а backend валидирует и безопасно выполняет каждый вызов.
 
-> **Статус:** этапы 1–10 завершены. Версионированный dataset из 21 сценария
-> проверяет tools, аргументы и итоговое состояние без платного API; каждый
-> результат связан с безопасной trace. Следующий этап — 11: финальная ревизия.
+> **Статус:** все 11 этапов завершены. Проект имеет архитектурные и security
+> contracts, воспроизводимый HTTP demo, frozen eval baseline, threat model и
+> ADR о выборе agent orchestration. Это законченный учебный проект, а не
+> production-ready сервис.
 
 ## Зачем нужен этот проект
 
@@ -24,7 +25,9 @@
 - evals;
 - логи и трассировка запусков.
 
-Подробная учебная программа находится в [ROADMAP.md](./ROADMAP.md).
+Подробная учебная программа находится в [ROADMAP.md](./ROADMAP.md), фактические
+зависимости — в [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md), а остаточные
+риски — в [docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md).
 
 ## MVP-сценарии
 
@@ -163,10 +166,19 @@ uv run python -m app.evals.cli
 uv run python -m app.evals.cli --output ../evals/report.json
 ```
 
-Два отчёта на одной версии dataset сравниваются командой:
+Два полных отчёта на одной версии dataset сравниваются командой:
 
 ```bash
-uv run python -m app.evals.compare ../evals/baseline.json ../evals/candidate.json
+uv run python -m app.evals.cli --output /tmp/baseline-report.json
+uv run python -m app.evals.cli --provider deepseek --output /tmp/candidate-report.json
+uv run python -m app.evals.compare /tmp/baseline-report.json /tmp/candidate-report.json
+```
+
+Зафиксированный deterministic baseline проверяется отдельно. Он намеренно не
+содержит случайные run IDs, timestamp и latency:
+
+```bash
+uv run python -m app.evals.baseline
 ```
 
 Запуск реальной модели всегда явный и требует `DEEPSEEK_API_KEY`:
@@ -190,8 +202,8 @@ redacted tool data, но не историю сообщений или соде�
 - `step_limit_exceeded`.
 
 В `waiting_for_approval` запуск уже содержит проверенное ожидающее действие, но
-destructive handler ещё не вызван. Approve и reject появятся в следующих
-микроэтапах этапа 6.
+destructive handler ещё не вызван. Approve или reject сохраняет решение и
+возобновляет тот же запуск; повторная доставка не применяет действие второй раз.
 
 Каждый `AgentStep` соответствует одному обращению к модели и хранит номер шага, снимок истории сообщений, нормализованный ответ, результаты tools, ошибку и длительность.
 
@@ -223,32 +235,33 @@ destructive handler ещё не вызван. Approve и reject появятся
 - DeepSeek Chat Completions как первая реальная реализация адаптера;
 - fake-провайдер для unit-тестов.
 
-## Будущая структура проекта
-
-Каталоги создаются только тогда, когда становятся нужны. Это карта предполагаемых границ, а не требование заранее сгенерировать пустой каркас.
+## Фактическая структура проекта
 
 ```text
 book-agent/
 ├── backend/
 │   ├── app/
-│   │   ├── api/             # HTTP endpoints и DTO
-│   │   ├── agent/           # loop, state, policies
-│   │   ├── llm/             # контракт и адаптеры провайдеров
-│   │   ├── tools/           # registry и определения tools
-│   │   ├── books/           # доменные модели и сервисы
-│   │   ├── repositories/    # SQLite/PostgreSQL реализации
-│   │   └── observability/   # runs, steps, tracing
+│   │   ├── agent/           # loop, state, persistence, approvals
+│   │   ├── catalog/         # local/Open Library adapters и fallback
+│   │   ├── evals/           # runner, evaluator, baseline и comparison
+│   │   ├── llm/             # provider contract, fake и DeepSeek adapter
+│   │   ├── memory/          # notes, preferences, chunks и retrieval
+│   │   ├── tools/           # schemas, registry, handlers и policy
+│   │   ├── api.py           # HTTP endpoints
+│   │   ├── dependencies.py  # composition root
+│   │   ├── demo.py          # автономный HTTP demo
+│   │   └── observability.py # безопасная trace
 │   ├── migrations/
 │   └── tests/
 ├── frontend/
-│   └── src/
-│       ├── api/
-│       ├── features/chat/
-│       ├── features/approvals/
-│       └── features/runs/
+│   └── src/                 # React UI, API client и strict decoder
 ├── evals/
-│   ├── datasets/
-│   └── runners/
+│   ├── datasets/            # versioned scenario inputs
+│   └── baselines/           # stable expected metrics
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── THREAT_MODEL.md
+│   └── adr/
 ├── README.md
 └── ROADMAP.md
 ```
@@ -309,6 +322,14 @@ uv run uvicorn app.main:app --reload
 
 API будет доступен на `http://localhost:8000`, интерактивная схема — на `http://localhost:8000/docs`.
 
+Самодостаточный demo использует временную SQLite и fake LLM, поэтому ему не
+нужны `.env`, API key, сервер или сеть:
+
+```bash
+cd backend
+uv run python -m app.demo
+```
+
 По умолчанию backend использует SQLite. Чистый локальный PostgreSQL, миграции и
 seed поднимаются из корня проекта одной командой:
 
@@ -352,6 +373,9 @@ curl -X POST http://localhost:8000/api/agent/runs \
 ```
 
 Endpoint возвращает финальное состояние `AgentRun` и упорядоченный трейс шагов. Максимальное число обращений к модели задаётся через `AGENT_MAX_STEPS` и по умолчанию равно `5`.
+
+Безопасная диагностическая trace без сообщений и содержимого заметок доступна
+по `GET /api/agent/runs/{run_id}/trace`.
 
 Для destructive-сценария первый запрос возвращает
 `waiting_for_approval` и `pending_action`. Подтверждение не принимает новых
@@ -437,9 +461,16 @@ OPEN_LIBRARY_TIMEOUT_SECONDS=15 RUN_OPEN_LIBRARY_SMOKE=1 \
   uv run pytest -m network
 ```
 
-## Границы первой версии
+## Известные ограничения
 
-В backend MVP намеренно не используются:
+Главное ограничение: `demo_user_id` — учебная подмена аутентификации. Сервис
+нельзя публиковать для нескольких пользователей без настоящей identity,
+авторизации и tenant isolation. Кроме того, agent loop синхронный, retrieval
+лексический, внешний catalog fallback локальный, а raw run endpoint хранит и
+возвращает полную рабочую историю. Полный список угроз, controls и остаточных
+рисков находится в [docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md).
+
+В этой версии намеренно не используются:
 
 - LangChain, LangGraph, CrewAI и другие агентные фреймворки;
 - несколько взаимодействующих агентов;
@@ -451,7 +482,8 @@ OPEN_LIBRARY_TIMEOUT_SECONDS=15 RUN_OPEN_LIBRARY_SMOKE=1 \
 - self-reflection после каждого шага;
 - автоматическое переписывание собственных промптов.
 
-После финальной ревизии можно осознанно сравнить самописный harness с Agents SDK или графовым фреймворком. К этому моменту будет понятно, какую реальную проблему должен решить новый слой абстракции.
+Решение оставить самописный линейный loop и измеримые условия его пересмотра
+записаны в [ADR-001](./docs/adr/001-agent-orchestration.md).
 
 ## Уровни готовности
 
@@ -459,6 +491,7 @@ OPEN_LIBRARY_TIMEOUT_SECONDS=15 RUN_OPEN_LIBRARY_SMOKE=1 \
 - **Безопасный MVP — этап 6:** запись или опасное действие можно остановить и подтвердить без повторного исполнения.
 - **Пользовательский MVP — этап 7:** сценарии доступны через React-интерфейс.
 - **Расширенная версия — этапы 8–10:** внешний каталог, PostgreSQL, RAG, evals и полная трассировка.
+- **Учебная ревизия — этап 11:** проверяемые границы, demo, baseline, threat model и ADR.
 
 Таким образом, внешний каталог, PostgreSQL и RAG не блокируют первую законченную версию.
 

@@ -922,7 +922,37 @@ Endpoint принимает сообщение и возвращает один 
 - Какой инцидент сложнее всего диагностировать по текущей трассе?
 - Какую конкретную проблему решит выбранный следующий инструмент?
 
-**Мои заметки:**
+**Мои заметки — этап завершён 14 сентября 2026:**
+
+- Фактическая карта архитектуры отделяет composition root, agent loop,
+  registry, прикладные сервисы и инфраструктурные адаптеры. AST-contracts
+  автоматически запрещают ключевые обратные зависимости.
+- Security contract объединяет allowlist, strict arguments, server-owned
+  `user_id`, approval-before-effect и межпользовательскую изоляцию. Запрещённый
+  `execute_sql` и попытка передать чужой user ID не меняют БД.
+- Удалён прямой `/api/chat`: он обходил AgentRun, tools, policy и trace. Теперь
+  у приложения один пользовательский LLM workflow через `AgentService`.
+- `python -m app.demo` на временной SQLite и scripted fake provider выполняет
+  HTTP read, многошаговый search+add и remove с approval. Он доказывает, что до
+  подтверждения книга остаётся, а после подтверждения удаляется ровно один раз.
+- Frozen baseline хранит хеш dataset и только стабильные метрики: 21/21,
+  precision/recall 1.0, ноль forbidden/invalid calls и 43 шага. Случайные UUID,
+  timestamp и latency не превращают baseline в шумный snapshot.
+- ADR сохраняет custom loop: текущий процесс линейный, ограничен step budget и
+  имеет один тип pause. SDK нужен при реальных handoffs/streaming/ecosystem
+  требованиях, graph — при ветвлении, параллельных узлах и нескольких durable
+  checkpoints.
+- Избыточным оказался отдельный `ChatService`, потому что создавал второй путь к
+  модели без защит agent harness. Недостаточны identity, raw-trace governance,
+  async execution и статистические live-model evals.
+- Главная граница доверия находится перед ToolRegistry: модель предлагает
+  недоверенный вызов, а приложение решает, существует ли tool, валидны ли
+  arguments, какой user действует и требуется ли approval.
+- Сложнее всего диагностировать редкий семантически неправильный ответ реальной
+  модели: safe trace намеренно скрывает prompt и content. Нужен контролируемый
+  audit-доступ к raw trace, а не ослабление redaction в обычных логах.
+- Следующий технический шаг — identity и tenant context. Он решает конкретную
+  дыру `demo_user_id`; новый agent framework эту security-проблему не исправит.
 
 ---
 
