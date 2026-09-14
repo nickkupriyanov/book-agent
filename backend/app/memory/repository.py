@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import LibraryEntry, UserNote, UserPreference
+from app.models import LibraryEntry, NoteChunk, UserNote, UserPreference
 
 
 class MemoryRepository:
@@ -36,10 +36,28 @@ class MemoryRepository:
             )
         )
 
+    def list_chunks(self, user_id: UUID) -> list[NoteChunk]:
+        return list(
+            self.session.scalars(
+                select(NoteChunk)
+                .where(NoteChunk.user_id == user_id)
+                .order_by(NoteChunk.id)
+            )
+        )
+
     def save_note(self, note: UserNote) -> UserNote:
         self.session.commit()
         self.session.refresh(note)
         return note
+
+    def replace_note_chunks(
+        self,
+        note: UserNote,
+        chunks: list[NoteChunk],
+    ) -> None:
+        note.chunks.clear()
+        self.session.flush()
+        note.chunks.extend(chunks)
 
     def delete_note(self, note: UserNote) -> None:
         self.session.delete(note)
