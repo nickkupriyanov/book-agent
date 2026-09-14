@@ -101,6 +101,79 @@ class LibraryEntry(Base):
     book: Mapped[Book] = relationship(lazy="joined")
 
 
+class UserNote(Base):
+    __tablename__ = "user_notes"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(index=True)
+    book_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("books.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    content: Mapped[str] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        server_default=text("1"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    chunks: Mapped[list["NoteChunk"]] = relationship(
+        back_populates="note",
+        cascade="all, delete-orphan",
+        order_by="NoteChunk.position",
+        lazy="selectin",
+    )
+
+
+class NoteChunk(Base):
+    __tablename__ = "note_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "note_id",
+            "position",
+            name="uq_note_chunk_position",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    note_id: Mapped[UUID] = mapped_column(
+        ForeignKey("user_notes.id", ondelete="CASCADE"),
+        index=True,
+    )
+    user_id: Mapped[UUID] = mapped_column(index=True)
+    book_id: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    token_count: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    note: Mapped[UserNote] = relationship(back_populates="chunks")
+
+
+class UserPreference(Base):
+    __tablename__ = "user_preferences"
+
+    user_id: Mapped[UUID] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[object] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 class AgentRun(Base):
     __tablename__ = "agent_runs"
 

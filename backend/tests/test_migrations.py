@@ -13,7 +13,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 MIGRATIONS_DIR = BACKEND_DIR / "migrations"
 PREVIOUS_REVISION = "20260803_04"
-HEAD_REVISION = "20260911_09"
+HEAD_REVISION = "20260914_10"
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 BOOK_ID = UUID("10000000-0000-0000-0000-000000000001")
@@ -84,6 +84,13 @@ def test_clean_database_upgrades_to_pending_actions_head(
         assert "uq_library_user_book" not in {
             constraint["name"]
             for constraint in inspector.get_unique_constraints("library_entries")
+        }
+        assert {"user_notes", "note_chunks", "user_preferences"} <= set(
+            inspector.get_table_names()
+        )
+        assert "uq_note_chunk_position" in {
+            constraint["name"]
+            for constraint in inspector.get_unique_constraints("note_chunks")
         }
         with engine.connect() as connection:
             assert connection.scalar(
