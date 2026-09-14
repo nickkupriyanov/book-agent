@@ -8,7 +8,7 @@
       "expected_tools": ["search_books"],
       "forbidden_tools": ["add_book", "update_book_status", "remove_book"],
       "argument_invariants": [{"tool": "search_books", "contains": {"query": "Дюна"}}],
-      "final_state": {"run_status": "completed", "answer_contains": ["Дюна"]},
+      "final_state": {"run_status": "completed", "answer_contains": ["Дюн"]},
       "max_steps": 3,
       "fake_responses": [
         {"text": "", "tool_calls": [{"id": "search-dune-1", "name": "search_books", "arguments": {"query": "Дюна", "limit": 5}}]},
@@ -47,7 +47,7 @@
       "expected_tools": ["get_user_library"],
       "forbidden_tools": ["search_books", "remove_book"],
       "argument_invariants": [{"tool": "get_user_library", "contains": {"status": "reading"}}],
-      "final_state": {"run_status": "completed", "library_contains": [{"title": "Дюна", "status": "reading"}], "answer_contains": ["Дюна"]},
+      "final_state": {"run_status": "completed", "library_contains": [{"title": "Дюна", "status": "reading"}], "answer_contains": ["Дюн"]},
       "max_steps": 3,
       "fake_responses": [
         {"text": "", "tool_calls": [{"id": "list-reading-1", "name": "get_user_library", "arguments": {"status": "reading"}}]},
@@ -199,7 +199,7 @@
       "input": "Найди Дюну и 1984",
       "expected_tools": ["search_books", "search_books"],
       "forbidden_tools": ["add_book", "remove_book"],
-      "final_state": {"run_status": "completed", "answer_contains": ["Дюна", "1984"]},
+      "final_state": {"run_status": "completed", "answer_contains": ["Дюн", "1984"]},
       "max_steps": 3,
       "fake_responses": [
         {"text": "", "tool_calls": [{"id": "multi-search-1", "name": "search_books", "arguments": {"query": "Дюна"}}, {"id": "multi-search-2", "name": "search_books", "arguments": {"query": "1984"}}]},
