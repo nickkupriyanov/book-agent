@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
 from app.agent.repository import AgentRunRepository
 from app.agent.approval import ApprovalService
@@ -13,9 +13,11 @@ from app.dependencies import (
     get_approval_service,
     get_book_service,
     get_chat_service,
+    get_memory_service,
 )
 from app.llm.models import ModelResponse
 from app.llm.service import ChatService
+from app.memory.service import MemoryService
 from app.models import ReadingStatus
 from app.schemas import (
     AgentRunRequest,
@@ -28,6 +30,11 @@ from app.schemas import (
     LibraryEntryCreate,
     LibraryEntryResponse,
     LibraryStatusUpdate,
+    NoteCreate,
+    NoteResponse,
+    NoteUpdate,
+    PreferenceResponse,
+    PreferenceUpsert,
 )
 from app.service import BookService
 
@@ -196,4 +203,94 @@ def update_library_status(
         user_id=get_settings().demo_user_id,
         book_id=book_id,
         status=payload.status,
+    )
+
+
+@router.post(
+    "/notes",
+    response_model=NoteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_note(
+    payload: NoteCreate,
+    service: Annotated[MemoryService, Depends(get_memory_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> NoteResponse:
+    return NoteResponse.model_validate(
+        service.create_note(
+            settings.demo_user_id,
+            payload.content,
+            payload.book_id,
+        )
+    )
+
+
+@router.get("/notes", response_model=list[NoteResponse])
+def list_notes(
+    service: Annotated[MemoryService, Depends(get_memory_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> list[NoteResponse]:
+    return [
+        NoteResponse.model_validate(note)
+        for note in service.list_notes(settings.demo_user_id)
+    ]
+
+
+@router.get("/notes/{note_id}", response_model=NoteResponse)
+def get_note(
+    note_id: UUID,
+    service: Annotated[MemoryService, Depends(get_memory_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> NoteResponse:
+    return NoteResponse.model_validate(
+        service.get_note(settings.demo_user_id, note_id)
+    )
+
+
+@router.put("/notes/{note_id}", response_model=NoteResponse)
+def update_note(
+    note_id: UUID,
+    payload: NoteUpdate,
+    service: Annotated[MemoryService, Depends(get_memory_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> NoteResponse:
+    return NoteResponse.model_validate(
+        service.update_note(
+            settings.demo_user_id,
+            note_id,
+            payload.content,
+            payload.book_id,
+        )
+    )
+
+
+@router.delete("/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_note(
+    note_id: UUID,
+    service: Annotated[MemoryService, Depends(get_memory_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> None:
+    service.delete_note(settings.demo_user_id, note_id)
+
+
+@router.get("/preferences", response_model=list[PreferenceResponse])
+def list_preferences(
+    service: Annotated[MemoryService, Depends(get_memory_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> list[PreferenceResponse]:
+    return [
+        PreferenceResponse.model_validate(preference)
+        for preference in service.list_preferences(settings.demo_user_id)
+    ]
+
+
+@router.put("/preferences/{key}", response_model=PreferenceResponse)
+def set_preference(
+    key: Annotated[str, Path(min_length=1, max_length=64)],
+    payload: PreferenceUpsert,
+    service: Annotated[MemoryService, Depends(get_memory_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> PreferenceResponse:
+    return PreferenceResponse.model_validate(
+        service.set_preference(settings.demo_user_id, key, payload.value)
     )

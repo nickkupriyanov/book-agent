@@ -1,7 +1,14 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, computed_field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    StrictBool,
+    computed_field,
+)
 
 from app.agent.state import AgentWorkingState
 from app.catalog.models import CatalogSource
@@ -128,6 +135,45 @@ class LibraryEntryResponse(BaseModel):
     book: BookResponse
     status: ReadingStatus
     created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NoteCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=20_000)
+    book_id: UUID | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class NoteUpdate(BaseModel):
+    content: str = Field(min_length=1, max_length=20_000)
+    book_id: UUID | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class NoteResponse(BaseModel):
+    id: UUID
+    book_id: UUID | None
+    content: str
+    revision: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PreferenceUpsert(BaseModel):
+    value: JsonValue
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PreferenceResponse(BaseModel):
+    key: str
+    value: JsonValue
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

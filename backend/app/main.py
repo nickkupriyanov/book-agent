@@ -20,6 +20,7 @@ from app.llm.exceptions import (
     LLMTimeoutError,
     LLMUnavailableError,
 )
+from app.memory.exceptions import NoteBookNotInLibraryError, NoteNotFoundError
 from app.schemas import HealthResponse
 
 app = FastAPI(title="Book Agent API", version="0.1.0")
@@ -122,11 +123,24 @@ def health() -> HealthResponse:
 
 @app.exception_handler(BookNotFoundError)
 @app.exception_handler(LibraryEntryNotFoundError)
+@app.exception_handler(NoteNotFoundError)
 def handle_not_found(
-    request: Request, exc: BookNotFoundError | LibraryEntryNotFoundError
+    request: Request,
+    exc: BookNotFoundError | LibraryEntryNotFoundError | NoteNotFoundError,
 ) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": str(exc)},
+    )
+
+
+@app.exception_handler(NoteBookNotInLibraryError)
+def handle_note_book_not_in_library(
+    request: Request,
+    exc: NoteBookNotInLibraryError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
         content={"detail": str(exc)},
     )
 

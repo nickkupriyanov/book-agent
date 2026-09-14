@@ -20,6 +20,8 @@ from app.llm.deepseek import DeepSeekProvider
 from app.llm.exceptions import LLMNotConfiguredError
 from app.llm.provider import LLMProvider
 from app.llm.service import ChatService
+from app.memory.repository import MemoryRepository
+from app.memory.service import MemoryService
 from app.repository import BookRepository
 from app.service import BookService
 from app.tools.books import SEARCH_BOOKS_TOOL, SearchBooksHandler
@@ -80,6 +82,12 @@ def get_book_service(
     catalog: Annotated[BookCatalog, Depends(get_book_catalog)],
 ) -> BookService:
     return BookService(BookRepository(db), catalog)
+
+
+def get_memory_service(
+    db: Annotated[Session, Depends(get_db)],
+) -> MemoryService:
+    return MemoryService(MemoryRepository(db))
 
 
 def get_llm_provider(
