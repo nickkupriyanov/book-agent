@@ -1,0 +1,282 @@
+{
+  "version": "book-agent-evals-v1",
+  "prompt_version": "book-agent-system-v1",
+  "scenarios": [
+    {
+      "id": "search-dune",
+      "input": "Найди Дюну",
+      "expected_tools": ["search_books"],
+      "forbidden_tools": ["add_book", "update_book_status", "remove_book"],
+      "argument_invariants": [{"tool": "search_books", "contains": {"query": "Дюна"}}],
+      "final_state": {"run_status": "completed", "answer_contains": ["Дюна"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "search-dune-1", "name": "search_books", "arguments": {"query": "Дюна", "limit": 5}}]},
+        {"text": "Нашёл «Дюну».", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "search-1984",
+      "input": "Найди книгу 1984",
+      "expected_tools": ["search_books"],
+      "forbidden_tools": ["add_book", "remove_book"],
+      "argument_invariants": [{"tool": "search_books", "contains": {"query": "1984"}}],
+      "final_state": {"run_status": "completed", "answer_contains": ["1984"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "search-1984-1", "name": "search_books", "arguments": {"query": "1984"}}]},
+        {"text": "Нашёл «1984».", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "list-empty-library",
+      "input": "Покажи мою библиотеку",
+      "expected_tools": ["get_user_library"],
+      "forbidden_tools": ["search_books", "search_user_notes", "remove_book"],
+      "final_state": {"run_status": "completed", "library_excludes": ["Дюна"], "answer_contains": ["пуста"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "list-empty-1", "name": "get_user_library", "arguments": {}}]},
+        {"text": "Ваша библиотека пуста.", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "list-reading",
+      "input": "Что я сейчас читаю?",
+      "initial_state": {"library": [{"book_id": "10000000-0000-0000-0000-000000000001", "status": "reading"}]},
+      "expected_tools": ["get_user_library"],
+      "forbidden_tools": ["search_books", "remove_book"],
+      "argument_invariants": [{"tool": "get_user_library", "contains": {"status": "reading"}}],
+      "final_state": {"run_status": "completed", "library_contains": [{"title": "Дюна", "status": "reading"}], "answer_contains": ["Дюна"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "list-reading-1", "name": "get_user_library", "arguments": {"status": "reading"}}]},
+        {"text": "Сейчас вы читаете «Дюну».", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "add-dune-want-to-read",
+      "input": "Найди Дюну и добавь в список на чтение",
+      "expected_tools": ["search_books", "add_book"],
+      "forbidden_tools": ["update_book_status", "remove_book"],
+      "argument_invariants": [
+        {"tool": "search_books", "contains": {"query": "Дюна"}},
+        {"tool": "add_book", "contains": {"book_id": "10000000-0000-0000-0000-000000000001", "status": "want_to_read"}}
+      ],
+      "final_state": {"run_status": "completed", "library_contains": [{"title": "Дюна", "status": "want_to_read"}]},
+      "max_steps": 4,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "add-dune-search", "name": "search_books", "arguments": {"query": "Дюна"}}]},
+        {"text": "", "tool_calls": [{"id": "add-dune-write", "name": "add_book", "arguments": {"book_id": "10000000-0000-0000-0000-000000000001", "status": "want_to_read"}}]},
+        {"text": "Добавил «Дюну».", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "add-known-1984",
+      "input": "Добавь найденную книгу 1984 в читаю",
+      "expected_tools": ["add_book"],
+      "forbidden_tools": ["remove_book"],
+      "argument_invariants": [{"tool": "add_book", "contains": {"status": "reading"}}],
+      "final_state": {"run_status": "completed", "library_contains": [{"title": "1984", "status": "reading"}]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "add-1984-1", "name": "add_book", "arguments": {"book_id": "10000000-0000-0000-0000-000000000002", "status": "reading"}}]},
+        {"text": "Добавил «1984».", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "idempotent-add-dune",
+      "input": "Добавь Дюну в хочу прочитать ещё раз",
+      "initial_state": {"library": [{"book_id": "10000000-0000-0000-0000-000000000001", "status": "want_to_read"}]},
+      "expected_tools": ["add_book"],
+      "forbidden_tools": ["update_book_status", "remove_book"],
+      "argument_invariants": [{"tool": "add_book", "contains": {"status": "want_to_read"}}],
+      "final_state": {"run_status": "completed", "library_contains": [{"title": "Дюна", "status": "want_to_read"}]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "idempotent-add-1", "name": "add_book", "arguments": {"book_id": "10000000-0000-0000-0000-000000000001", "status": "want_to_read"}}]},
+        {"text": "«Дюна» уже была в списке.", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "finish-dune",
+      "input": "Я дочитал Дюну",
+      "initial_state": {"library": [{"book_id": "10000000-0000-0000-0000-000000000001", "status": "reading"}]},
+      "expected_tools": ["update_book_status"],
+      "forbidden_tools": ["add_book", "remove_book"],
+      "argument_invariants": [{"tool": "update_book_status", "contains": {"status": "finished"}}],
+      "final_state": {"run_status": "completed", "library_contains": [{"title": "Дюна", "status": "finished"}]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "finish-dune-1", "name": "update_book_status", "arguments": {"book_id": "10000000-0000-0000-0000-000000000001", "status": "finished"}}]},
+        {"text": "Отметил «Дюну» прочитанной.", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "recent-finished",
+      "input": "Покажи две недавно прочитанные книги",
+      "initial_state": {"library": [{"book_id": "10000000-0000-0000-0000-000000000001", "status": "finished"}, {"book_id": "10000000-0000-0000-0000-000000000002", "status": "finished"}]},
+      "expected_tools": ["get_user_library"],
+      "forbidden_tools": ["remove_book"],
+      "argument_invariants": [{"tool": "get_user_library", "contains": {"status": "finished", "recent_first": true, "limit": 2}}],
+      "final_state": {"run_status": "completed", "library_contains": [{"title": "Дюна", "status": "finished"}, {"title": "1984", "status": "finished"}]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "recent-1", "name": "get_user_library", "arguments": {"status": "finished", "recent_first": true, "limit": 2}}]},
+        {"text": "Недавно прочитаны «Дюна» и «1984».", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "recommend-from-dune",
+      "input": "Посоветуй похожую на недавно прочитанную книгу",
+      "initial_state": {"library": [{"book_id": "10000000-0000-0000-0000-000000000001", "status": "finished"}]},
+      "expected_tools": ["get_user_library", "find_similar_books"],
+      "forbidden_tools": ["add_book", "remove_book"],
+      "argument_invariants": [{"tool": "find_similar_books", "contains": {"source_book_ids": ["10000000-0000-0000-0000-000000000001"], "limit": 3}}],
+      "final_state": {"run_status": "completed", "library_contains": [{"title": "Дюна", "status": "finished"}]},
+      "max_steps": 4,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "recommend-library", "name": "get_user_library", "arguments": {"status": "finished", "recent_first": true, "limit": 1}}]},
+        {"text": "", "tool_calls": [{"id": "recommend-similar", "name": "find_similar_books", "arguments": {"source_book_ids": ["10000000-0000-0000-0000-000000000001"], "limit": 3}}]},
+        {"text": "Вам подойдёт «Левая рука Тьмы».", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "notes-politics",
+      "input": "Что я писал о политике?",
+      "initial_state": {"notes": [{"content": "Политика воды определяет власть на Арракисе."}]},
+      "expected_tools": ["search_user_notes"],
+      "forbidden_tools": ["search_books", "remove_book"],
+      "argument_invariants": [{"tool": "search_user_notes", "contains": {"query": "политика"}}],
+      "final_state": {"run_status": "completed", "answer_contains": ["политик"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "notes-politics-1", "name": "search_user_notes", "arguments": {"query": "политика"}}]},
+        {"text": "Вы писали о политике воды.", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "notes-no-context",
+      "input": "Что я писал о музыке?",
+      "initial_state": {"notes": [{"content": "Политика воды и экология пустыни."}]},
+      "expected_tools": ["search_user_notes"],
+      "forbidden_tools": ["search_books", "remove_book"],
+      "argument_invariants": [{"tool": "search_user_notes", "contains": {"query": "музыка"}}],
+      "final_state": {"run_status": "completed", "answer_contains": ["нет"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "notes-empty-1", "name": "search_user_notes", "arguments": {"query": "музыка"}}]},
+        {"text": "В заметках нет информации о музыке.", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "library-does-not-search-notes",
+      "input": "Какие книги я читаю?",
+      "initial_state": {"library": [{"book_id": "10000000-0000-0000-0000-000000000003", "status": "reading"}], "notes": [{"content": "Секретная личная заметка."}]},
+      "expected_tools": ["get_user_library"],
+      "forbidden_tools": ["search_user_notes", "remove_book"],
+      "final_state": {"run_status": "completed", "library_contains": [{"title": "Марсианин", "status": "reading"}], "answer_contains": ["Марсианин"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "library-only-1", "name": "get_user_library", "arguments": {"status": "reading"}}]},
+        {"text": "Вы читаете «Марсианина».", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "search-no-results",
+      "input": "Найди Несуществующую книгу",
+      "expected_tools": ["search_books"],
+      "forbidden_tools": ["add_book", "remove_book"],
+      "final_state": {"run_status": "completed", "library_excludes": ["Дюна"], "answer_contains": ["не нашёл"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "search-none-1", "name": "search_books", "arguments": {"query": "Несуществующая книга"}}]},
+        {"text": "Ничего не нашёл.", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "multi-book-search",
+      "input": "Найди Дюну и 1984",
+      "expected_tools": ["search_books", "search_books"],
+      "forbidden_tools": ["add_book", "remove_book"],
+      "final_state": {"run_status": "completed", "answer_contains": ["Дюна", "1984"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "multi-search-1", "name": "search_books", "arguments": {"query": "Дюна"}}, {"id": "multi-search-2", "name": "search_books", "arguments": {"query": "1984"}}]},
+        {"text": "Нашёл «Дюну» и «1984».", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "update-missing-library-entry",
+      "input": "Отметь Дюну прочитанной",
+      "expected_tools": ["update_book_status"],
+      "forbidden_tools": ["add_book", "remove_book"],
+      "final_state": {"run_status": "completed", "library_excludes": ["Дюна"], "answer_contains": ["нет"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "missing-update-1", "name": "update_book_status", "arguments": {"book_id": "10000000-0000-0000-0000-000000000001", "status": "finished"}}]},
+        {"text": "Этой книги нет в библиотеке.", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "add-then-list",
+      "input": "Добавь Солярис и покажи библиотеку",
+      "expected_tools": ["add_book", "get_user_library"],
+      "forbidden_tools": ["remove_book"],
+      "final_state": {"run_status": "completed", "library_contains": [{"title": "Солярис", "status": "want_to_read"}], "answer_contains": ["Солярис"]},
+      "max_steps": 4,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "add-solaris-1", "name": "add_book", "arguments": {"book_id": "10000000-0000-0000-0000-000000000005", "status": "want_to_read"}}]},
+        {"text": "", "tool_calls": [{"id": "list-after-add-1", "name": "get_user_library", "arguments": {}}]},
+        {"text": "В библиотеке появился «Солярис».", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "notes-and-library",
+      "input": "Сверь мои заметки об экологии с текущей библиотекой",
+      "initial_state": {"library": [{"book_id": "10000000-0000-0000-0000-000000000001", "status": "reading"}], "notes": [{"content": "Экология пустыни влияет на политику."}]},
+      "expected_tools": ["search_user_notes", "get_user_library"],
+      "forbidden_tools": ["remove_book"],
+      "final_state": {"run_status": "completed", "library_contains": [{"title": "Дюна", "status": "reading"}], "answer_contains": ["эколог"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "cross-notes-1", "name": "search_user_notes", "arguments": {"query": "экология"}}, {"id": "cross-library-1", "name": "get_user_library", "arguments": {}}]},
+        {"text": "Заметка об экологии относится к «Дюне».", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "preferences-do-not-become-notes",
+      "input": "Что написано в моих заметках о фэнтези?",
+      "initial_state": {"preferences": {"genres": ["fantasy"]}},
+      "expected_tools": ["search_user_notes"],
+      "forbidden_tools": ["search_books", "remove_book"],
+      "final_state": {"run_status": "completed", "answer_contains": ["нет"]},
+      "max_steps": 3,
+      "fake_responses": [
+        {"text": "", "tool_calls": [{"id": "prefs-not-notes-1", "name": "search_user_notes", "arguments": {"query": "фэнтези"}}]},
+        {"text": "В заметках нет информации о фэнтези.", "tool_calls": []}
+      ]
+    },
+    {
+      "id": "no-tool-clarification",
+      "input": "Посоветуй что-нибудь",
+      "expected_tools": [],
+      "optional_tools": [],
+      "forbidden_tools": ["add_book", "update_book_status", "remove_book"],
+      "final_state": {"run_status": "completed", "answer_contains": ["Уточните"]},
+      "max_steps": 2,
+      "fake_responses": [{"text": "Уточните, какие жанры вам нравятся.", "tool_calls": []}]
+    },
+    {
+      "id": "remove-requires-approval",
+      "input": "Удали Дюну из библиотеки",
+      "initial_state": {"library": [{"book_id": "10000000-0000-0000-0000-000000000001", "status": "reading"}]},
+      "expected_tools": ["remove_book"],
+      "forbidden_tools": ["add_book", "update_book_status"],
+      "argument_invariants": [{"tool": "remove_book", "contains": {"book_id": "10000000-0000-0000-0000-000000000001"}}],
+      "final_state": {"run_status": "waiting_for_approval", "library_contains": [{"title": "Дюна", "status": "reading"}]},
+      "max_steps": 2,
+      "fake_responses": [{"text": "", "tool_calls": [{"id": "remove-approval-1", "name": "remove_book", "arguments": {"book_id": "10000000-0000-0000-0000-000000000001"}}]}]
+    }
+  ]
+}
