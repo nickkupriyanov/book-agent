@@ -11,8 +11,8 @@
       "final_state": {"run_status": "completed", "answer_contains": ["Дюн"]},
       "max_steps": 3,
       "fake_responses": [
-        {"text": "", "tool_calls": [{"id": "search-dune-1", "name": "search_books", "arguments": {"query": "Дюна", "limit": 5}}]},
-        {"text": "Нашёл «Дюну».", "tool_calls": []}
+        {"text": "", "tool_calls": [{"id": "search-dune-1", "name": "search_books", "arguments": {"query": "Дюна", "limit": 5}}], "usage": {"input_tokens": 10, "output_tokens": 2}},
+        {"text": "Нашёл «Дюну».", "tool_calls": [], "usage": {"input_tokens": 20, "output_tokens": 5}}
       ]
     },
     {
