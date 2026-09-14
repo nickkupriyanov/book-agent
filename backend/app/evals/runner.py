@@ -22,6 +22,7 @@ from app.llm.provider import LLMProvider
 from app.memory.repository import MemoryRepository
 from app.memory.service import MemoryService
 from app.models import Base, AgentRun
+from app.observability import build_safe_trace
 from app.repository import BookRepository
 from app.seed import seed_database
 from app.service import BookService
@@ -179,6 +180,10 @@ def _observation(
 def run_scenario(
     scenario: EvalScenario,
     provider: LLMProvider,
+    *,
+    provider_name: str = "fake",
+    model_name: str = "scripted",
+    prompt_version: str = "book-agent-system-v1",
 ) -> ScenarioEvaluation:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
@@ -193,10 +198,16 @@ def run_scenario(
                 _registry(book_service, memory_service),
                 AgentRunRepository(session),
                 max_steps=scenario.max_steps,
+                provider_name=provider_name,
+                model_name=model_name,
+                prompt_version=prompt_version,
             ).run(EVAL_USER_ID, scenario.input)
-            return evaluate_scenario(
+            evaluation = evaluate_scenario(
                 scenario,
                 _observation(run, book_service),
+            )
+            return evaluation.model_copy(
+                update={"safe_trace": build_safe_trace(run)}
             )
     finally:
         engine.dispose()
@@ -242,7 +253,13 @@ def run_dataset(
         lambda scenario: FakeLLMProvider(scenario.fake_responses)
     )
     results = [
-        run_scenario(scenario, factory(scenario))
+        run_scenario(
+            scenario,
+            factory(scenario),
+            provider_name=provider_name,
+            model_name=model_name,
+            prompt_version=dataset.prompt_version,
+        )
         for scenario in dataset.scenarios
     ]
     return EvalReport(

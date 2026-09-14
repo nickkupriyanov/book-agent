@@ -13,7 +13,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 MIGRATIONS_DIR = BACKEND_DIR / "migrations"
 PREVIOUS_REVISION = "20260803_04"
-HEAD_REVISION = "20260914_10"
+HEAD_REVISION = "20260914_11"
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 BOOK_ID = UUID("10000000-0000-0000-0000-000000000001")
@@ -88,6 +88,12 @@ def test_clean_database_upgrades_to_pending_actions_head(
         assert {"user_notes", "note_chunks", "user_preferences"} <= set(
             inspector.get_table_names()
         )
+        assert {"provider_name", "model_name", "prompt_version"} <= {
+            column["name"] for column in inspector.get_columns("agent_runs")
+        }
+        assert {"input_tokens", "output_tokens"} <= {
+            column["name"] for column in inspector.get_columns("agent_steps")
+        }
         assert "uq_note_chunk_position" in {
             constraint["name"]
             for constraint in inspector.get_unique_constraints("note_chunks")

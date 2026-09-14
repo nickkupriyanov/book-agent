@@ -198,6 +198,21 @@ class AgentRun(Base):
         server_default=text("0"),
     )
     user_message: Mapped[str] = mapped_column(Text)
+    provider_name: Mapped[str] = mapped_column(
+        String(64),
+        default="unknown",
+        server_default=text("'unknown'"),
+    )
+    model_name: Mapped[str] = mapped_column(
+        String(128),
+        default="unknown",
+        server_default=text("'unknown'"),
+    )
+    prompt_version: Mapped[str] = mapped_column(
+        String(64),
+        default="unversioned",
+        server_default=text("'unversioned'"),
+    )
     working_state: Mapped[dict[str, object]] = mapped_column(JSON)
     final_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     stop_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -302,6 +317,8 @@ class AgentStep(Base):
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

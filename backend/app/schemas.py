@@ -47,6 +47,8 @@ class AgentStepResponse(BaseModel):
     tool_results: list[dict[str, object]]
     error: str | None
     duration_ms: int
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -88,6 +90,9 @@ class AgentRunResponse(BaseModel):
     id: UUID
     status: AgentRunStatus
     user_message: str
+    provider_name: str
+    model_name: str
+    prompt_version: str
     working_state: AgentWorkingState
     final_answer: str | None
     stop_reason: str | None

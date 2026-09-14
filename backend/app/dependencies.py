@@ -172,6 +172,8 @@ def get_agent_service(
         max_steps=settings.agent_max_steps,
         approval_ttl_seconds=settings.pending_action_ttl_seconds,
         history_max_tool_rounds=settings.agent_history_max_tool_rounds,
+        provider_name="deepseek",
+        model_name=settings.deepseek_model,
     )
 
 

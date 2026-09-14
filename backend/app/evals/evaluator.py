@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.evals.models import EvalScenario
 from app.models import AgentRunStatus, ReadingStatus
+from app.observability import SafeRunTrace
 
 
 class ObservedToolCall(BaseModel):
@@ -49,6 +50,7 @@ class ScenarioEvaluation(BaseModel):
     duration_ms: int = Field(ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    safe_trace: SafeRunTrace | None = None
 
     model_config = ConfigDict(extra="forbid")
 

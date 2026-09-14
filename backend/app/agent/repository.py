@@ -23,11 +23,18 @@ class AgentRunRepository:
         user_id: UUID,
         user_message: str,
         working_state: AgentWorkingState,
+        *,
+        provider_name: str = "unknown",
+        model_name: str = "unknown",
+        prompt_version: str = "unversioned",
     ) -> AgentRun:
         run = AgentRun(
             user_id=user_id,
             user_message=user_message,
             working_state=working_state.model_dump(mode="json"),
+            provider_name=provider_name,
+            model_name=model_name,
+            prompt_version=prompt_version,
         )
         self._session.add(run)
         self._session.commit()
@@ -44,6 +51,8 @@ class AgentRunRepository:
         tool_results: list[dict[str, object]],
         error: str | None,
         duration_ms: int,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
     ) -> AgentStep:
         step = AgentStep(
             run_id=run_id,
@@ -53,6 +62,8 @@ class AgentRunRepository:
             tool_results=tool_results,
             error=error,
             duration_ms=duration_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
         self._session.add(step)
         self._session.commit()
@@ -104,6 +115,8 @@ class AgentRunRepository:
         messages: list[dict[str, object]],
         response: dict[str, object],
         duration_ms: int,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
         tool_call_id: str,
         tool_name: str,
         arguments: dict[str, object],
@@ -121,6 +134,8 @@ class AgentRunRepository:
             tool_results=[],
             error=None,
             duration_ms=duration_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
         action = PendingAction(
             run_id=run.id,
