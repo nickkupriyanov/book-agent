@@ -1,7 +1,7 @@
 # Threat model и известные ограничения
 
-Документ описывает учебную версию Book Agent после этапа 11. Наличие controls
-ниже не означает production readiness.
+Документ описывает актуальную учебную версию Book Agent. Наличие controls ниже
+не означает production readiness.
 
 ## Что защищаем
 
